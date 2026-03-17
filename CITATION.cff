@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Albertini"
+    given-names: "Angelica"
+    orcid: "https://orcid.org/0000-0002-9556-1323" 
+  - family-names: "Stratený"
+    given-names: "Michal"
+    orcid: "https://orcid.org/0009-0006-7623-3689" 
+  - family-names: "Loukes-Gerakopoulos"
+    given-names: "Georgios"
+    orcid: "https://orcid.org/0000-0002-6333-3094" 
+title: "eogyn"
+version: 1.0.0
+doi: 10.5281/zenodo.19073498
+date-released: 2026-03-17
+url: "https://github.com/gravitangie/eogyn"
