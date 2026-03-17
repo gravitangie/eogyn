@@ -1,0 +1,38 @@
+# example parfile
+
+# binary parameters
+q      = 10.  
+chi1x0 = 0.
+chi1y0 = 0.
+chi1z0 = 0.65
+chi2x0 = 0.
+chi2y0 = 0.
+chi2z0 = 0.65
+
+# type of initial conditions
+motion = generic
+
+# orbital parameters
+x0 = 10. # 3 for plunging orbit
+y0 = 0.
+z0 = 0.
+
+# constants of motion
+E0    = 0.97
+pphi0 = 3.
+
+# options for different functions
+pots = resummed # comment/uncomment to test
+
+# ODE solver settings
+dt      = 0.1
+tmax    = 5000 
+
+
+
+
+
+
+
+
+

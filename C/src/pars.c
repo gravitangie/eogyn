@@ -1,0 +1,346 @@
+/*
+File: pars.c
+
+This file contains code responsible for managing all parameters.
+*/
+
+#include "header.h"
+
+// Global variable for parameters:
+// - firstly declared as extern in the header
+// - the structure type Parameters is also defined in the header 
+Parameters *pars;
+
+// Global variables for function pointers: 
+// - needed for functions that have different options 
+// - firstly declared as extern in the header 
+void (*Potentials)();
+void (*ODESolver)();
+
+
+// Allocate space for the parameters
+void AllocateParameters(Parameters **pars)
+{
+    *pars = (Parameters *) calloc(1, sizeof(Parameters)); 
+    // calloc initialises to 0; if there is not memory left, it returns NULL.
+    if (pars == NULL) {
+        fprintf(stderr, "Memory allocation failed.\n");
+        exit(EXIT_FAILURE);  
+    }
+} 
+
+void FreeParameters(Parameters *pars)
+{
+    if (pars != NULL) free(pars);
+}
+
+
+// Set the default values for the parameters
+void SetDefaults(Parameters *pars)
+{
+    // Binary parameters
+    pars->q      = 1.;
+    pars->chi1x0 = 0.;
+    pars->chi1y0 = 0.;
+    pars->chi1z0 = 0.;
+    pars->chi2x0 = 0.;
+    pars->chi2y0 = 0.;
+    pars->chi2z0 = 0.;
+
+    // Orbital params.
+    pars->x0 = 10.;
+    pars->y0 = 0.;
+    pars->z0 = 0.;
+
+    // Type of motion
+    pars->motion = Motion_Generic;
+
+    // Constants of motion 
+    // Initialized as NAN to check later if they have been defined in the input parfile or not
+    pars->pphi0 = NAN;
+    pars->E0  = NAN;
+
+    // Options for functions within the Hamiltonian
+    pars->pots  = Pots_Resummed;
+
+    // Type of coordinates (standard with non-canonical spins, or canonical)
+    pars->coords = Coords_Canonical; 
+
+    // ODE solver settings
+    pars->solver         = ODESolver_RKGL6;
+    pars->step           = Step_Transformed; // FIXME: Could think of turning this on only for eccentric
+    pars->dt             = 0.5;
+    pars->tmax           = 1000.;
+    pars->max_iter_RKGL6 = 100.;
+    pars->tol_RKGL6      = 1e-15;
+}
+
+// Parse the command line to get the name of the parfile & read it 
+void ParseCommandLine(int argc, char *argv[], Parameters *pars) 
+{
+    int opt;
+    while ((opt = getopt(argc, argv, "p:")) != -1) {
+        switch (opt) {
+            case 'p':
+                ReadParfile(optarg, pars);
+                break;
+            default:
+                fprintf(stderr, "Usage: %s [-p parfile]\n", argv[0]);  //[-param1 value] [-param2 value]\n", argv[0]);
+                exit(EXIT_FAILURE);
+        }
+    }
+}
+
+// Read the parfile & assign the values to the related variables
+void ReadParfile(char *filename, Parameters *pars) 
+{
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        perror("Failed to open parameter file.\n");
+        return;
+    }
+
+    char line[256];
+    while (fgets(line, sizeof(line), file)) {
+        // Remove comments
+        char *comment = strchr(line, '#');
+        if (comment) {
+            *comment = '\0';  // Terminate the string at the start of the comment
+        }
+
+        // Trim whitespace
+        char *key = strtok(line, " =\t\n");
+        char *value = strtok(NULL, " =\t\n");
+
+        // Assign values if key and value are present
+        if (key && value) {
+            AssignValues(pars, key, value);
+        }
+    }
+    fclose(file);
+}
+
+
+// Assign the values read from the parfile
+void AssignValues(Parameters *pars, char *key, char *value) 
+{
+    if (strcmp(key, "q") == 0) {
+        pars->q = atof(value);
+    } else if (strcmp(key, "chi1x0") == 0) {
+        pars->chi1x0 = atof(value);
+    } else if (strcmp(key, "chi1y0") == 0) {
+        pars->chi1y0 = atof(value);
+    } else if (strcmp(key, "chi1z0") == 0) {
+        pars->chi1z0 = atof(value);
+    } else if (strcmp(key, "chi2x0") == 0) {
+        pars->chi2x0 = atof(value);
+    } else if (strcmp(key, "chi2y0") == 0) {
+        pars->chi2y0 = atof(value);
+    } else if (strcmp(key, "chi2z0") == 0) {
+        pars->chi2z0 = atof(value);
+    } else if (strcmp(key, "x0") == 0) {
+        pars->x0 = atof(value);
+    } else if (strcmp(key, "y0") == 0) {
+        pars->y0 = atof(value);
+    } else if (strcmp(key, "z0") == 0) {
+        pars->z0 = atof(value);
+    } else if (strcmp(key, "E0") == 0) {
+        pars->E0 = atof(value);
+    } else if (strcmp(key, "pphi0") == 0) {
+        pars->pphi0 = atof(value);
+    } else if (strcmp(key, "dt") == 0) {
+        pars->dt = atof(value);
+    } else if (strcmp(key, "tmax") == 0) {
+        pars->tmax = atof(value);
+    } else if (strcmp(key, "max_iter_RKGL6") == 0) {
+        pars->max_iter_RKGL6 = atof(value);
+    } else if (strcmp(key, "tol_RKGL6") == 0) {
+        pars->tol_RKGL6 = atof(value);
+    } else if (strcmp(key, "coords") == 0) {
+        trimString(value);
+        for (pars->coords = 0; pars->coords <= Coords_NOPT; pars->coords++) { 
+          if (pars->coords == Coords_NOPT) {
+            pars->coords = Coords_Canonical; // default
+            printf("No option chosen for the coordinates, thus set to the default: '%s'\n", coords_opt[pars->coords]);
+            break;
+          }
+          if (strcmp(value, coords_opt[pars->coords]) == 0) break;
+        }
+    } else if (strcmp(key, "solver") == 0) {
+        trimString(value);
+        for (pars->solver = 0; pars->solver <= ODESolver_NOPT; pars->solver++) { 
+          if (pars->solver == ODESolver_NOPT) {
+            pars->solver = ODESolver_RKGL6; // default
+            printf("No option chosen for the ODE solver, thus set to the default: '%s'\n", solver_opt[pars->solver]);
+            break;
+          }
+          if (strcmp(value, solver_opt[pars->solver]) == 0) break;
+        }
+    } else if (strcmp(key, "step") == 0) {
+        trimString(value);
+        for (pars->step = 0; pars->step <= Step_NOPT; pars->step++) { 
+          if (pars->step == Step_NOPT) {
+            pars->step = Step_Standard; // default
+            printf("No option chosen for the time step, thus set to the default: '%s'\n", step_opt[pars->step]);
+            break;
+          }
+          if (strcmp(value, step_opt[pars->step]) == 0) break;
+        }
+    } else if (strcmp(key, "pots") == 0) {
+        trimString(value);
+        for (pars->pots = 0; pars->pots <= Pots_NOPT; pars->pots++) { 
+          if (pars->pots == Pots_NOPT) {
+            pars->pots = Pots_Resummed; // default
+            printf("No option chosen for the potentials, thus set to the default: '%s'\n", pots_opt[pars->pots]);
+            break;
+          }
+          if (strcmp(value, pots_opt[pars->pots]) == 0) break;
+        }
+    } else if (strcmp(key, "motion") == 0) {
+        trimString(value);
+        for (pars->motion = 0; pars->motion <= Motion_NOPT; pars->motion++) {
+          if (pars->motion == Motion_NOPT) {
+            pars->motion = Motion_Generic; // default
+            printf("No option chosen for the type of motion, thus set to the default: '%s'\n", motion_opt[pars->motion]);
+            // Give error if E0 and pphi0 have not been set 
+            if (isnan(pars->E0) || isnan(pars->pphi0)) {
+                printf("Error: the initial energy and angular momentum must be set for generic motion.\n");
+                exit(EXIT_FAILURE);
+            } else {
+            break;
+            }
+          }
+          if (strcmp(value, motion_opt[pars->motion]) == 0) break;
+        }
+    }
+}
+
+// Set additional parameters not determined in parfile
+void SetParameters()
+{
+
+    // Evaluate parameters that depend on the input ones
+    pars->nu = get_nu(pars->q);
+    double X1, X2;
+      get_X1X2(pars->nu, &X1, &X2);
+    pars->X1 = X1;
+    pars->X2 = X2;
+
+    // For circular or generic motion, start along the x axis
+    if ((pars->motion == Motion_Circular || pars->motion == Motion_Generic) && (pars->y0 > 1e-15)) {
+        printf("For circular/generic motion, setting the initial orbital phase to zero and the in-plane component of the radius along the x axis.\n");
+        double modr = sqrt((pars->x0)*(pars->x0) + (pars->y0)*(pars->y0));
+        pars->x0 = modr;
+        pars->y0 = 0.;
+        printf("New x0 = %.10f, new y0 = 0.\n", pars->x0);
+    }
+
+    // Set the function pointer for the integration scheme
+    if (pars->solver == ODESolver_RK4) {
+      ODESolver = &RK_Fourth;
+    } else if (pars->solver == ODESolver_RKGL6) {
+      ODESolver = &RK_GaussLegendre6;
+    }
+
+    // Set the function pointer for the potentials
+    if (pars->pots == Pots_NonResummed) {
+      Potentials = &NonResummedPotentials;
+    } else if (pars->pots == Pots_Resummed) {
+      Potentials = &ResummedPotentials;
+    }
+  
+    // Choose type of motion depending on the input parameters:
+    // if on the equatorial plane & spin components only along the z axis, set motion to circular
+    /*
+    if (pars->z0 < 1e-15 & pars->chi1x0 < 1e-15 & pars->chi1y0 < 1e-15 & pars->chi2x0 < 1e-15 & pars->chi2y0 < 1e-15) {
+        pars->motion = Motion_Circular; 
+
+        if (pars->y0 > 1e-15) {
+            printf("For circular motion, setting the initial orbital phase to zero and the radius along the x axis.\n");
+            double modr = sqrt((pars->x0)*(pars->x0) + (pars->y0)*(pars->y0));
+            pars->x0 = modr;
+            pars->y0 = 0.;
+            printf("New x0 = %.10f, new y0 = 0.\n", pars->x0);
+        }
+    } else { // Otherwise, set to generic motion
+        pars->motion = Motion_Generic; 
+        if (isnan(pars->E0) || isnan(pars->pphi0)) {
+            printf("Error: the initial energy and angular momentum must be set for generic motion.\n");
+            exit(EXIT_FAILURE);
+        }
+    }*/
+
+    // Check if E0, pphi0 have been set in the parameter file
+    /*
+    if (isnan(pars->E0) || isnan(pars->pphi0)) {
+        pars->motion = Motion_Circular; 
+
+        // Motion starts with initial orbital phase zero and radius along the x axis
+        if (pars->y0 > 1e-15) {
+            printf("For circular motion, setting the initial orbital phase to zero and the radius along the x axis.\n");
+            double modr = sqrt((pars->x0)*(pars->x0) + (pars->y0)*(pars->y0));
+            pars->x0 = modr;
+            pars->y0 = 0.;
+            printf("New x0 = %.10f, new y0 = 0.\n", pars->x0);
+        }
+
+    }
+    */
+
+}
+
+void WriteMetadataFile(Parameters *pars, char *filepath) 
+{
+    // Open the file for writing
+    FILE* fp;
+    fp = fopen(filepath, "w+");
+    if (fp == NULL) {
+        perror("Error opening metadata file\n");
+        exit(EXIT_FAILURE);
+    }
+
+    // Binary parameters
+    fprintf(fp, "q = %.16f\n", pars->q);
+    fprintf(fp, "nu = %.16f\n", pars->nu); 
+    fprintf(fp, "chi1x0 = %.16f\n", pars->chi1x0); 
+    fprintf(fp, "chi1y0 = %.16f\n", pars->chi1y0); 
+    fprintf(fp, "chi1z0 = %.16f\n", pars->chi1z0); 
+    fprintf(fp, "chi2x0 = %.16f\n", pars->chi2x0); 
+    fprintf(fp, "chi2y0 = %.16f\n", pars->chi2y0); 
+    fprintf(fp, "chi2z0 = %.16f\n", pars->chi2z0); 
+
+    // Type of motion
+    fprintf(fp, "motion = %s\n", motion_opt[pars->motion]); 
+
+    // Orbital parameters 
+    if (pars->motion == Motion_Circular) {
+        fprintf(fp, "x0 = %.16f\n", pars->x0); 
+        fprintf(fp, "y0 = %.16f\n", pars->y0);
+    } else if (pars->motion == Motion_EquatorialEccentric) {
+        fprintf(fp, "E0 = %.16f\n", pars->E0); 
+        fprintf(fp, "pphi0 = %.16f\n", pars->pphi0);
+    } else if (pars->motion == Motion_Generic) {
+        fprintf(fp, "x0 = %.16f\n", pars->x0); 
+        fprintf(fp, "y0 = %.16f\n", pars->y0);
+        fprintf(fp, "z0 = %.16f\n", pars->z0);
+        fprintf(fp, "E0 = %.16f\n", pars->E0); 
+        fprintf(fp, "pphi0 = %.16f\n", pars->pphi0);
+    } 
+
+    // Options for functions within the Hamiltonian
+    fprintf(fp, "pots = %s\n", pots_opt[pars->pots]); 
+
+    // Type of coordinates
+    fprintf(fp, "coords = %s\n", coords_opt[pars->coords]); 
+
+    // ODE solver settings
+    fprintf(fp, "solver = %s\n", solver_opt[pars->solver]); 
+    if (pars->solver == ODESolver_RKGL6) {
+        fprintf(fp, "max_iter_RKGL6 = %.16f\n", pars->max_iter_RKGL6);
+        fprintf(fp, "tol_RKGL6 = %.16f\n", pars->tol_RKGL6);
+    }
+    fprintf(fp, "step = %s\n", step_opt[pars->step]); 
+    fprintf(fp, "dt = %.16f\n", pars->dt); 
+    fprintf(fp, "tmax = %.16f\n", pars->tmax); 
+
+}

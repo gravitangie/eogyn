@@ -1,0 +1,33 @@
+# example parfile
+
+# binary parameters
+q      = 10.  
+chi1x0 = 0.16
+chi1y0 = 0.29
+chi1z0 = 0.56
+chi2x0 = 0.47
+chi2y0 = 0.51
+chi2z0 = 0.65
+
+# type of initial conditions
+motion = equatorial-eccentric
+
+# orbital parameters
+E0  = 0.97
+pphi0 = 3.8
+
+# options for different functions
+pots = resummed # comment/uncomment to test
+
+# ODE solver settings
+dt      = 0.1
+tmax    = 5000 
+
+
+
+
+
+
+
+
+
