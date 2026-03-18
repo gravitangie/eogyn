@@ -36,4 +36,4 @@ This code was developed by Angelica Albertini and Michal Stratený under the sup
 
 ## Acknowledgements
 
-This code was developed within the project No. 107324 funded by the Grant Agency of Charles University.
+This code was developed within the project No. 107324 funded by the Grant Agency of Charles University. The name `eogyn` is inspired by Éowyn, the character of _The Lord of the Rings_ by J. R. R. Tolkien.
