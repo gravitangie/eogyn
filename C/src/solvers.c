@@ -181,6 +181,46 @@ void Secant(double(*fun)(double), double x0, double tol, double *zero)
     }
 }
 
+// Version of Secant method with interval in input
+void Secant_v2(double(*fun)(double), double a, double b, double tol, double *zero)
+{
+
+    double fa = fun(a);
+    double fb = fun(b);
+    double dx;
+    int imax = 1000;
+
+    // printf("f(a) = %.16f, f(b) = %.16f\n", fa, fb);
+
+    *zero = 0.;
+
+    if(fa*fb > 0.)
+    {
+        fprintf(stderr, "Failed to find root: the function is not changing sign in the provided interval.\n");
+    }
+    else
+    {
+        dx = b - a;
+        int i = 0;
+        while(fabs(dx) > tol)
+        {
+            i++;
+            dx = fb*(b - a)/(fb - fa);
+            a = b;
+            fa = fb;
+            b -= dx;
+            fb = fun(b);
+            if(i > imax)
+            {
+                fprintf(stderr, "Failed to find root: maximum number of iterations reached.\n");
+                break;
+            }
+        }
+        *zero = b;
+        // if(fabs(zero - 0.) < tol) zero = 0.;
+    }
+}
+
 // Newton's method for root finding
 double Newton(double(*fun)(double), double(*fun_der)(double), double a, double b, double tol)
 {

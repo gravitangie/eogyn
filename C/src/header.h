@@ -172,5 +172,6 @@ extern void (*ODESolver)(double t, double *Y, double h, int N_eq, void (*RHS)(do
 void RK_Fourth(double t, double *Y, double h, int N_eq, void (*RHS)(double, double*, double*));
 void RK_GaussLegendre6(double t, double *Y, double h, int N_eq, void (*RHS)(double, double*, double*));
 void Secant(double(*fun)(double), double x0, double tol, double *zero);
+void Secant_v2(double(*fun)(double), double a, double b, double tol, double *zero);
 double Newton(double(*fun)(double), double(*fun_der)(double), double a, double b, double tol);
 void QuarticPolyRoots(double coefs[], double roots[]);
