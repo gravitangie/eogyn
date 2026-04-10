@@ -73,7 +73,7 @@ int main(int argc, char *argv[]){
     }
 
     // Create the directory
-    if (mkdir(folder, 0755) == -1) {
+    if (MAKE_DIR(folder) == -1) {
         if (errno != EEXIST) { // Do not give error if dir already exists
             perror("Error creating directory");
             return 1;

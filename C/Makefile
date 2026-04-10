@@ -6,17 +6,17 @@ CFLAGS = -g # debug
 # CFLAGS += -O3
 
 # directories
-S = $(PWD)/src
-O = $(PWD)/obj
+S = src
+O = obj
 
 # files
-SRC = $(wildcard $S/*.c)
-OBJ = $(patsubst $S/%.c, $O/%.o, $(SRC))
+SRC = $(wildcard $(S)/*.c)
+OBJ = $(patsubst $(S)/%.c,$(O)/%.o,$(SRC))
 
 # executable
-NAME = eogyn 
+NAME = eogyn
 
-# rules & prerequisites 
+# rules & prerequisites
 
 .PHONY : all clean
 
@@ -24,12 +24,12 @@ all : $(NAME)
 	@echo "Code successfully compiled!"
 
 $(NAME) : $(OBJ)
-	@$(CC) $(CFLAGS) $^ -o $@ 
+	@$(CC) $(CFLAGS) $^ -o $@ -lm
 
-$O/%.o : $S/%.c
+$(O)/%.o : $(S)/%.c
 	@mkdir -p $(dir $@)
 	@$(CC) $(CFLAGS) -c $< -o $@
 
 clean :
-	@rm -r $(NAME) $O
+	@rm -r $(NAME) $(O)
 	@echo "Everything has been cleaned."

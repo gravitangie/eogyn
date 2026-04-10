@@ -14,8 +14,16 @@ This file contains libraries, function declarations, and other necessary definit
 #include <string.h>
 #include <time.h>
 #include <ctype.h>
-#include <sys/stat.h>
 #include <errno.h>
+
+#ifdef _WIN32
+    #include <direct.h>
+    #define MAKE_DIR(path) _mkdir(path)
+#else
+    #include <sys/stat.h>
+    #include <sys/types.h>
+    #define MAKE_DIR(path) mkdir((path), 0755)
+#endif
 
 // Constants
 #define Pi (3.1415926535897932384626433832795028)
