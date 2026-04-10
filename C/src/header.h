@@ -70,6 +70,23 @@ enum{
 };
 static const char* const pots_opt[] = {"non-resummed", "resummed", "undefined"};
 
+// List of options for the Poincare section surface
+enum{
+    PoincareSurface_Z,
+    PoincareSurface_X,
+    PoincareSurface_NOPT
+};
+static const char* const poincare_surface_opt[] = {"z", "x", "undefined"};
+
+// List of options for the Poincare section crossing direction
+enum{
+    PoincareDirection_Positive,
+    PoincareDirection_Negative,
+    PoincareDirection_Both,
+    PoincareDirection_NOPT
+};
+static const char* const poincare_direction_opt[] = {"positive", "negative", "both", "undefined"};
+
 // Data type for the parameters
 typedef struct Parameters {
 
@@ -100,11 +117,18 @@ typedef struct Parameters {
     int solver; // Choose the type of solver
     int step; // Standard or rescaled
     double dt;
-    double tmax;
+    double tmax_traj;
+    double tmax_poincare;
     double max_iter_RKGL6;
     double tol_RKGL6;
     // double reltol;
     // double abstol;
+
+    // Poincare section settings
+    int poincare_on;
+    int poincare_surface;
+    int poincare_direction;
+    double poincare_value;
 
 } Parameters;
 

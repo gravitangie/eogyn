@@ -70,9 +70,16 @@ void SetDefaults(Parameters *pars)
     pars->solver         = ODESolver_RKGL6;
     pars->step           = Step_Transformed; // FIXME: Could think of turning this on only for eccentric
     pars->dt             = 0.5;
-    pars->tmax           = 1000.;
+    pars->tmax_traj      = 1000.;
+    pars->tmax_poincare  = 0.;
     pars->max_iter_RKGL6 = 100.;
     pars->tol_RKGL6      = 1e-15;
+
+    // Poincare section settings
+    pars->poincare_on        = 0;
+    pars->poincare_surface   = PoincareSurface_Z;
+    pars->poincare_direction = PoincareDirection_Positive;
+    pars->poincare_value     = 0.;
 }
 
 // Parse the command line to get the name of the parfile & read it 
@@ -150,8 +157,10 @@ void AssignValues(Parameters *pars, char *key, char *value)
         pars->pphi0 = atof(value);
     } else if (strcmp(key, "dt") == 0) {
         pars->dt = atof(value);
-    } else if (strcmp(key, "tmax") == 0) {
-        pars->tmax = atof(value);
+    } else if (strcmp(key, "tmax_traj") == 0) {
+        pars->tmax_traj = atof(value);
+    } else if (strcmp(key, "tmax_poincare") == 0) {
+        pars->tmax_poincare = atof(value);
     } else if (strcmp(key, "max_iter_RKGL6") == 0) {
         pars->max_iter_RKGL6 = atof(value);
     } else if (strcmp(key, "tol_RKGL6") == 0) {
@@ -211,6 +220,32 @@ void AssignValues(Parameters *pars, char *key, char *value)
             }
           }
           if (strcmp(value, motion_opt[pars->motion]) == 0) break;
+        }
+    } else if (strcmp(key, "poincare_on") == 0) {
+        pars->poincare_on = atoi(value);
+    } else if (strcmp(key, "poincare_value") == 0) {
+        pars->poincare_value = atof(value);
+    } else if (strcmp(key, "poincare_surface") == 0) {
+        trimString(value);
+        for (pars->poincare_surface = 0; pars->poincare_surface <= PoincareSurface_NOPT; pars->poincare_surface++) {
+            if (pars->poincare_surface == PoincareSurface_NOPT) {
+                pars->poincare_surface = PoincareSurface_Z; // default
+                printf("No option chosen for the Poincare surface, thus set to the default: '%s'\n",
+                       poincare_surface_opt[pars->poincare_surface]);
+                break;
+            }
+            if (strcmp(value, poincare_surface_opt[pars->poincare_surface]) == 0) break;
+        }
+    } else if (strcmp(key, "poincare_direction") == 0) {
+        trimString(value);
+        for (pars->poincare_direction = 0; pars->poincare_direction <= PoincareDirection_NOPT; pars->poincare_direction++) {
+            if (pars->poincare_direction == PoincareDirection_NOPT) {
+                pars->poincare_direction = PoincareDirection_Positive; // default
+                printf("No option chosen for the Poincare direction, thus set to the default: '%s'\n",
+                       poincare_direction_opt[pars->poincare_direction]);
+                break;
+            }
+            if (strcmp(value, poincare_direction_opt[pars->poincare_direction]) == 0) break;
         }
     }
 }
@@ -341,6 +376,12 @@ void WriteMetadataFile(Parameters *pars, char *filepath)
     }
     fprintf(fp, "step = %s\n", step_opt[pars->step]); 
     fprintf(fp, "dt = %.16f\n", pars->dt); 
-    fprintf(fp, "tmax = %.16f\n", pars->tmax); 
+    fprintf(fp, "tmax_traj = %.16f\n", pars->tmax_traj);
+    fprintf(fp, "tmax_poincare = %.16f\n", pars->tmax_poincare);
 
+    // Poincare section settings
+    fprintf(fp, "poincare_on = %d\n", pars->poincare_on);
+    fprintf(fp, "poincare_surface = %s\n", poincare_surface_opt[pars->poincare_surface]);
+    fprintf(fp, "poincare_direction = %s\n", poincare_direction_opt[pars->poincare_direction]);
+    fprintf(fp, "poincare_value = %.16f\n", pars->poincare_value);
 }

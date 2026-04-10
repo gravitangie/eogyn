@@ -96,6 +96,22 @@ int main(int argc, char *argv[]){
     // Write the headers 
     fprintf(fp, "0:t\t 1:x\t 2:y\t 3:z\t 4:px\t 5:py\t 6:pz\t 7:chi1x\t 8:chi1y\t 9:chi1z\t 10:chi2x\t 11:chi2y\t 12:chi2z\t 13:E\t 14:lx\t 15:ly\t 16:lz\n");
 
+    // Open the Poincare section file for writing, if requested
+    FILE* fps = NULL;
+    if (pars->poincare_on) {
+        char poincarepath[150];
+        snprintf(poincarepath, sizeof(poincarepath), "%s/poincare.txt", folder);
+        printf("Poincare filepath will be: %s\n", poincarepath);
+
+        fps = fopen(poincarepath, "w+");
+        if (fps == NULL) {
+            perror("Error opening Poincare file");
+            return 1;
+        }
+
+        fprintf(fps, "0:t\t 1:x\t 2:y\t 3:z\t 4:px\t 5:py\t 6:pz\t 7:chi1x\t 8:chi1y\t 9:chi1z\t 10:chi2x\t 11:chi2y\t 12:chi2z\t 13:E\t 14:lx\t 15:ly\t 16:lz\n");
+    }
+
     // Wrap the initial values into one single variable
     // FIXME: Use dynamical memory allocation (can have w[12] and W[10] without transformed time step)
     double w[14];
@@ -145,7 +161,9 @@ int main(int argc, char *argv[]){
     double s    = 0.;
     double ds   = 0.0001; // FIXME: Could add in parfile (for now 0.0001 is perfect, set as default)
     double dt   = pars->dt; // time step (for RK4; not used for RKGL6)
-    double tmax = pars->tmax;
+    double tmax_traj      = pars->tmax_traj;
+    double tmax_poincare  = pars->tmax_poincare;
+    double tmax_total     = tmax_traj + tmax_poincare;
 
     // Radii to be used for stopping conditions
     double rLR;
@@ -208,6 +226,16 @@ int main(int argc, char *argv[]){
             w[12] = 0.; // Initial time
             w[13] = -H0; // Conjugate momentum to the physical time, pt
         }
+    }
+
+    // Previous state for Poincare section detection
+    double t_prev = t;
+    double r_prev[3], p_prev[3], chi1_prev[3], chi2_prev[3];
+    for (int i = 0; i < 3; i++) {
+        r_prev[i]    = r[i];
+        p_prev[i]    = p[i];
+        chi1_prev[i] = chi1[i];
+        chi2_prev[i] = chi2[i];
     }
 
     // ****************
@@ -314,9 +342,84 @@ int main(int argc, char *argv[]){
     // Q = CarterLikeConstant(r, p, chi1, chi2);
     // CartesianToSpherical(r, p, Q, P); 
 
+    if (t <= tmax_traj) {
     fprintf(fp, "%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
-            t, r[0], r[1], r[2], p[0], p[1], p[2], chi1[0], chi1[1], chi1[2], chi2[0], chi2[1], chi2[2], H*(pars->nu), l[0], l[1], l[2]);  
+            t, r[0], r[1], r[2], p[0], p[1], p[2], chi1[0], chi1[1], chi1[2], chi2[0], chi2[1], chi2[2], H*(pars->nu), l[0], l[1], l[2]);
+    }
     
+    // Check for Poincare section crossing
+    if (pars->poincare_on && fps != NULL) {
+
+        int coord_idx;
+
+        if (pars->poincare_surface == PoincareSurface_Z) {
+            coord_idx = 2; // z
+        } else if (pars->poincare_surface == PoincareSurface_X) {
+            coord_idx = 0; // x
+        } else {
+            coord_idx = 2;
+        }
+
+        double sec_prev = r_prev[coord_idx] - pars->poincare_value;
+        double sec_curr = r[coord_idx]      - pars->poincare_value;
+
+        int crossed = ((sec_prev < 0.0 && sec_curr > 0.0) ||
+                       (sec_prev > 0.0 && sec_curr < 0.0));
+
+        if (crossed) {
+            double lambda = sec_prev / (sec_prev - sec_curr);
+
+            double t_cross;
+            double r_cross[3], p_cross[3], chi1_cross[3], chi2_cross[3];
+            double H_cross, dummy_cross, l_cross[3];
+            double dHeff_cross[12], dH_cross[12], dummyd2_cross[18];
+
+            t_cross = t_prev + lambda * (t - t_prev);
+
+            for (int i = 0; i < 3; i++) {
+                r_cross[i]    = r_prev[i]    + lambda * (r[i]    - r_prev[i]);
+                p_cross[i]    = p_prev[i]    + lambda * (p[i]    - p_prev[i]);
+                chi1_cross[i] = chi1_prev[i] + lambda * (chi1[i] - chi1_prev[i]);
+                chi2_cross[i] = chi2_prev[i] + lambda * (chi2[i] - chi2_prev[i]);
+            }
+
+            Hamiltonian(r_cross, p_cross, pars->nu, chi1_cross, chi2_cross,
+                        &dummy_cross, &H_cross, dHeff_cross, dH_cross);
+            get_l(r_cross, p_cross, l_cross, dummyd2_cross);
+
+            double vsec_cross = dH_cross[3 + coord_idx];
+
+            int write_point = 0;
+            if (pars->poincare_direction == PoincareDirection_Positive) {
+                if (vsec_cross > 0.0) write_point = 1;
+            } else if (pars->poincare_direction == PoincareDirection_Negative) {
+                if (vsec_cross < 0.0) write_point = 1;
+            } else if (pars->poincare_direction == PoincareDirection_Both) {
+                write_point = 1;
+            }
+
+            if (write_point) {
+                fprintf(fps, "%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
+                        t_cross,
+                        r_cross[0], r_cross[1], r_cross[2],
+                        p_cross[0], p_cross[1], p_cross[2],
+                        chi1_cross[0], chi1_cross[1], chi1_cross[2],
+                        chi2_cross[0], chi2_cross[1], chi2_cross[2],
+                        H_cross*(pars->nu),
+                        l_cross[0], l_cross[1], l_cross[2]);
+            }
+        }
+    }
+
+    // Update previous state
+    t_prev = t;
+    for (int i = 0; i < 3; i++) {
+        r_prev[i]    = r[i];
+        p_prev[i]    = p[i];
+        chi1_prev[i] = chi1[i];
+        chi2_prev[i] = chi2[i];
+    }
+
     // Stop at the light ring or when the radius exceeds the maximum one
     modr = get_mod(r);
     if (modr < rLR) {
@@ -328,11 +431,12 @@ int main(int argc, char *argv[]){
     }
 
     // If radius conditions are not met, stop anyway at the maximum integration time
-    if (t >= tmax) printf("Stop: maximum time reached.\n");
-    
-    } while (t < tmax); 
+    if (t >= tmax_total) printf("Stop: maximum time reached.\n");
+
+    } while (t < tmax_total);
 
     fclose(fp);
+    if (fps != NULL) fclose(fps);
     printf("Data written successfully to %s\n", filepath);
 
     // Write metadata file (same folder)
