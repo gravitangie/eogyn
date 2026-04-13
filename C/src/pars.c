@@ -80,6 +80,13 @@ void SetDefaults(Parameters *pars)
     pars->poincare_surface   = PoincareSurface_Z;
     pars->poincare_direction = PoincareDirection_Positive;
     pars->poincare_value     = 0.;
+
+    // Poincare scan settings
+    pars->scan_on   = 0;
+    pars->scan_rmin = 5.0;
+    pars->scan_rmax = 20.0;
+    pars->scan_nr   = 100;
+
 }
 
 // Parse the command line to get the name of the parfile & read it 
@@ -247,6 +254,14 @@ void AssignValues(Parameters *pars, char *key, char *value)
             }
             if (strcmp(value, poincare_direction_opt[pars->poincare_direction]) == 0) break;
         }
+    } else if (strcmp(key, "scan_on") == 0) {
+        pars->scan_on = atoi(value);
+    } else if (strcmp(key, "scan_rmin") == 0) {
+        pars->scan_rmin = atof(value);
+    } else if (strcmp(key, "scan_rmax") == 0) {
+        pars->scan_rmax = atof(value);
+    } else if (strcmp(key, "scan_nr") == 0) {
+        pars->scan_nr = atoi(value);
     }
 }
 
@@ -384,4 +399,11 @@ void WriteMetadataFile(Parameters *pars, char *filepath)
     fprintf(fp, "poincare_surface = %s\n", poincare_surface_opt[pars->poincare_surface]);
     fprintf(fp, "poincare_direction = %s\n", poincare_direction_opt[pars->poincare_direction]);
     fprintf(fp, "poincare_value = %.16f\n", pars->poincare_value);
+
+    // Poincare scan settings
+    fprintf(fp, "scan_on = %d\n", pars->scan_on);
+    fprintf(fp, "scan_rmin = %.16f\n", pars->scan_rmin);
+    fprintf(fp, "scan_rmax = %.16f\n", pars->scan_rmax);
+    fprintf(fp, "scan_nr = %d\n", pars->scan_nr);
+
 }

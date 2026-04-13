@@ -130,6 +130,12 @@ typedef struct Parameters {
     int poincare_direction;
     double poincare_value;
 
+    // Poincare scan settings
+    int scan_on;
+    double scan_rmin;
+    double scan_rmax;
+    int scan_nr;
+
 } Parameters;
 
 extern Parameters *pars; 
@@ -178,6 +184,8 @@ void EquatorialICs(double *x0);
 double EnergyCondition_Generic(double pz);
 double get_dHeffdpz(double pz);
 void GenericICs(double *p0);
+static int BracketGenericPz(double pz_min, double pz_max, int nscan, double *a, double *b);
+int TryGenericICsAtRadius(double r0, double *p0);
 
 // Functions in utils.c
 double dot(double a[], double b[], int n);

@@ -6,6 +6,268 @@ This file contains the main function, which serves as the entry point for the pr
 
 #include "header.h"
 
+static int RunGenericScanOrbit(FILE *fps, int orbit_id, double r0_init, double p0_init[3])
+{
+    double w[14] = {0.};
+    double W[12] = {0.};
+
+    w[0] = r0_init;
+    w[1] = 0.;
+    w[2] = 0.;
+    w[3] = p0_init[0];
+    w[4] = p0_init[1];
+    w[5] = p0_init[2];
+
+    w[6]  = pars->chi1x0;
+    w[7]  = pars->chi1y0;
+    w[8]  = pars->chi1z0;
+    w[9]  = pars->chi2x0;
+    w[10] = pars->chi2y0;
+    w[11] = pars->chi2z0;
+
+    double t   = 0.;
+    double s   = 0.;
+    double ds  = 0.0001;
+    double dt  = pars->dt;
+
+    double tmax_traj     = pars->tmax_traj;
+    double tmax_poincare = pars->tmax_poincare;
+    double tmax_total    = tmax_traj + tmax_poincare;
+
+    double rLR;
+    AdiabaticLightRing(&rLR);
+    double rmax = 500.0;
+
+    double r[3], p[3], chi1[3], chi2[3], H, l[3], dummy, dummyd[12], dummyd2[18];
+    double modr;
+
+    for (int i = 0; i < 3; i++) {
+        r[i]    = w[i];
+        p[i]    = w[i + 3];
+        chi1[i] = w[i + 6];
+        chi2[i] = w[i + 9];
+    }
+
+    Hamiltonian(r, p, pars->nu, chi1, chi2, &dummy, &H, dummyd, dummyd);
+    get_l(r, p, l, dummyd2);
+    double H0 = H;
+
+    double modchi1 = get_mod(chi1);
+    double modchi2 = get_mod(chi2);
+
+    const double eps = 1.0e-30;
+    double alpha1, xi1, alpha2, xi2, sqrt1mxi12, sqrt1mxi22;
+
+    if (pars->coords == Coords_Canonical) {
+        for (int i = 0; i < 6; i++) W[i] = w[i];
+        W[6] = atan2(w[7], w[6]);
+        W[7] = w[8] / (modchi1 + eps);
+        W[8] = atan2(w[10], w[9]);
+        W[9] = w[11] / (modchi2 + eps);
+
+        if (pars->step == Step_Transformed) {
+            W[10] = 0.;
+            W[11] = -H0;
+        }
+    } else {
+        if (pars->step == Step_Transformed) {
+            w[12] = 0.;
+            w[13] = -H0;
+        }
+    }
+
+    double t_prev = t;
+    double r_prev[3], p_prev[3], chi1_prev[3], chi2_prev[3];
+    for (int i = 0; i < 3; i++) {
+        r_prev[i]    = r[i];
+        p_prev[i]    = p[i];
+        chi1_prev[i] = chi1[i];
+        chi2_prev[i] = chi2[i];
+    }
+
+    int cross_id = 0;
+
+    do {
+
+        if (pars->coords == Coords_Canonical) {
+
+            if (pars->step == Step_Transformed) {
+
+                ODESolver(s, W, ds, 12, get_rhs_canonical_transformed);
+
+                for (int i = 0; i < 3; i++) {
+                    r[i] = W[i];
+                    p[i] = W[i + 3];
+                }
+
+                alpha1 = W[6];
+                xi1    = W[7];
+                alpha2 = W[8];
+                xi2    = W[9];
+
+                sqrt1mxi12 = sqrt(1. - xi1*xi1);
+                sqrt1mxi22 = sqrt(1. - xi2*xi2);
+
+                chi1[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
+                chi1[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
+                chi1[2] = modchi1 * xi1;
+
+                chi2[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
+                chi2[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
+                chi2[2] = modchi2 * xi2;
+
+                t = W[10];
+                s += ds;
+
+            } else {
+
+                ODESolver(t, W, dt, 10, get_rhs_canonical);
+
+                for (int i = 0; i < 3; i++) {
+                    r[i] = W[i];
+                    p[i] = W[i + 3];
+                }
+
+                alpha1 = W[6];
+                xi1    = W[7];
+                alpha2 = W[8];
+                xi2    = W[9];
+
+                sqrt1mxi12 = sqrt(1. - xi1*xi1);
+                sqrt1mxi22 = sqrt(1. - xi2*xi2);
+
+                chi1[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
+                chi1[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
+                chi1[2] = modchi1 * xi1;
+
+                chi2[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
+                chi2[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
+                chi2[2] = modchi2 * xi2;
+
+                t += dt;
+            }
+
+        } else {
+
+            if (pars->step == Step_Transformed) {
+
+                ODESolver(s, w, ds, 14, get_rhs_transformed);
+
+                for (int i = 0; i < 3; i++) {
+                    r[i]    = w[i];
+                    p[i]    = w[i + 3];
+                    chi1[i] = w[i + 6];
+                    chi2[i] = w[i + 9];
+                }
+
+                t = w[12];
+                s += ds;
+
+            } else {
+
+                ODESolver(t, w, dt, 12, get_rhs);
+
+                for (int i = 0; i < 3; i++) {
+                    r[i]    = w[i];
+                    p[i]    = w[i + 3];
+                    chi1[i] = w[i + 6];
+                    chi2[i] = w[i + 9];
+                }
+
+                t += dt;
+            }
+        }
+
+        Hamiltonian(r, p, pars->nu, chi1, chi2, &dummy, &H, dummyd, dummyd);
+        get_l(r, p, l, dummyd2);
+
+        if (pars->poincare_on && fps != NULL) {
+
+            int coord_idx;
+            if (pars->poincare_surface == PoincareSurface_Z) {
+                coord_idx = 2;
+            } else if (pars->poincare_surface == PoincareSurface_X) {
+                coord_idx = 0;
+            } else {
+                coord_idx = 2;
+            }
+
+            double sec_prev = r_prev[coord_idx] - pars->poincare_value;
+            double sec_curr = r[coord_idx]      - pars->poincare_value;
+
+            int crossed = ((sec_prev < 0.0 && sec_curr > 0.0) ||
+                           (sec_prev > 0.0 && sec_curr < 0.0));
+
+            if (crossed) {
+                double lambda = sec_prev / (sec_prev - sec_curr);
+
+                double t_cross;
+                double r_cross[3], p_cross[3], chi1_cross[3], chi2_cross[3];
+                double H_cross, dummy_cross, l_cross[3];
+                double dHeff_cross[12], dH_cross[12], dummyd2_cross[18];
+
+                t_cross = t_prev + lambda * (t - t_prev);
+
+                for (int i = 0; i < 3; i++) {
+                    r_cross[i]    = r_prev[i]    + lambda * (r[i]    - r_prev[i]);
+                    p_cross[i]    = p_prev[i]    + lambda * (p[i]    - p_prev[i]);
+                    chi1_cross[i] = chi1_prev[i] + lambda * (chi1[i] - chi1_prev[i]);
+                    chi2_cross[i] = chi2_prev[i] + lambda * (chi2[i] - chi2_prev[i]);
+                }
+
+                Hamiltonian(r_cross, p_cross, pars->nu, chi1_cross, chi2_cross,
+                            &dummy_cross, &H_cross, dHeff_cross, dH_cross);
+                get_l(r_cross, p_cross, l_cross, dummyd2_cross);
+
+                double vsec_cross = dH_cross[3 + coord_idx];
+
+                int write_point = 0;
+                if (pars->poincare_direction == PoincareDirection_Positive) {
+                    if (vsec_cross > 0.0) write_point = 1;
+                } else if (pars->poincare_direction == PoincareDirection_Negative) {
+                    if (vsec_cross < 0.0) write_point = 1;
+                } else if (pars->poincare_direction == PoincareDirection_Both) {
+                    write_point = 1;
+                }
+
+                if (write_point && t_cross >= tmax_traj) {
+                    double rmod_cross = get_mod(r_cross);
+                    double pr_cross;
+                    get_pr(r_cross, p_cross, &pr_cross, NULL);
+
+                    fprintf(fps, "%d\t%.16f\t%d\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
+                            orbit_id, r0_init, cross_id,
+                            t_cross,
+                            r_cross[0], r_cross[1], r_cross[2],
+                            p_cross[0], p_cross[1], p_cross[2],
+                            chi1_cross[0], chi1_cross[1], chi1_cross[2],
+                            chi2_cross[0], chi2_cross[1], chi2_cross[2],
+                            H_cross*(pars->nu),
+                            l_cross[0], l_cross[1], l_cross[2],
+                            rmod_cross, pr_cross);
+
+                    cross_id++;
+                }
+            }
+        }
+
+        t_prev = t;
+        for (int i = 0; i < 3; i++) {
+            r_prev[i]    = r[i];
+            p_prev[i]    = p[i];
+            chi1_prev[i] = chi1[i];
+            chi2_prev[i] = chi2[i];
+        }
+
+        modr = get_mod(r);
+        if (modr < rLR) break;
+        if (modr > rmax) break;
+
+    } while (t < tmax_total);
+
+    return cross_id;
+}
+
 int main(int argc, char *argv[]){
 
     // Setting initial parameters
@@ -23,24 +285,22 @@ int main(int argc, char *argv[]){
     // ******************
 
     double pphi0 = 0., x0 = 0., p0[3] = {0.};
-    if (pars->motion == Motion_Circular) {
-        // Evaluate initial angular momentum with circular condition
-        printf("Finding initial conditions for circular motion.\n");
-        CircularICs(&pphi0);
-    } else if (pars->motion == Motion_EquatorialEccentric) { 
-        // Give error if the energy is larger than one (need to have bound motion)
-        if (pars->E0 > 1) {
-            perror("Error: You chose eccentric motion - the energy needs to be lower than 1!\n");
-            return 1;
+
+    if (!pars->scan_on) {
+        if (pars->motion == Motion_Circular) {
+            printf("Finding initial conditions for circular motion.\n");
+            CircularICs(&pphi0);
+        } else if (pars->motion == Motion_EquatorialEccentric) {
+            if (pars->E0 > 1) {
+                perror("Error: You chose eccentric motion - the energy needs to be lower than 1!\n");
+                return 1;
+            }
+            printf("Finding initial conditions for eccentric equatorial motion.\n");
+            EquatorialICs(&x0);
+        } else if (pars->motion == Motion_Generic) {
+            printf("Finding initial conditions for generic motion.\n");
+            GenericICs(p0);
         }
-        // Evaluate initial starting point with given energy and angular momentum 
-        // (here x0 is chosen to be the apoapsis)
-        printf("Finding initial conditions for eccentric equatorial motion.\n");
-        EquatorialICs(&x0);
-    } else if (pars->motion == Motion_Generic) { 
-        // Evaluate the initial momentum pz corresponding to the initial energy
-        printf("Finding initial conditions for generic motion.\n");
-        GenericICs(p0);
     }
 
     // Folder name 
@@ -80,27 +340,34 @@ int main(int argc, char *argv[]){
         }
     }
 
-    // File path
-    char filepath[150];
-    snprintf(filepath, sizeof(filepath), "%s/dyn.txt", folder);
-    printf("Filepath will be: %s\n", filepath);
+    // Open trajectory file only if not scanning
+    FILE* fp = NULL;
+    char filepath[150] = "";
 
-    // Open the file for writing
-    FILE* fp;
-    fp = fopen(filepath, "w+");
-    if (fp == NULL) {
-        perror("Error opening file");
-        return 1;
+    if (!pars->scan_on) {
+        snprintf(filepath, sizeof(filepath), "%s/dyn.txt", folder);
+        printf("Filepath will be: %s\n", filepath);
+
+        fp = fopen(filepath, "w+");
+        if (fp == NULL) {
+            perror("Error opening file");
+            return 1;
+        }
+
+        fprintf(fp, "0:t\t 1:x\t 2:y\t 3:z\t 4:px\t 5:py\t 6:pz\t 7:chi1x\t 8:chi1y\t 9:chi1z\t 10:chi2x\t 11:chi2y\t 12:chi2z\t 13:E\t 14:lx\t 15:ly\t 16:lz\n");
     }
-
-    // Write the headers 
-    fprintf(fp, "0:t\t 1:x\t 2:y\t 3:z\t 4:px\t 5:py\t 6:pz\t 7:chi1x\t 8:chi1y\t 9:chi1z\t 10:chi2x\t 11:chi2y\t 12:chi2z\t 13:E\t 14:lx\t 15:ly\t 16:lz\n");
 
     // Open the Poincare section file for writing, if requested
     FILE* fps = NULL;
     if (pars->poincare_on) {
         char poincarepath[150];
-        snprintf(poincarepath, sizeof(poincarepath), "%s/poincare.txt", folder);
+
+        if (pars->scan_on) {
+            snprintf(poincarepath, sizeof(poincarepath), "%s/poincare_scan.txt", folder);
+        } else {
+            snprintf(poincarepath, sizeof(poincarepath), "%s/poincare.txt", folder);
+        }
+
         printf("Poincare filepath will be: %s\n", poincarepath);
 
         fps = fopen(poincarepath, "w+");
@@ -109,7 +376,82 @@ int main(int argc, char *argv[]){
             return 1;
         }
 
-        fprintf(fps, "0:t\t 1:x\t 2:y\t 3:z\t 4:px\t 5:py\t 6:pz\t 7:chi1x\t 8:chi1y\t 9:chi1z\t 10:chi2x\t 11:chi2y\t 12:chi2z\t 13:E\t 14:lx\t 15:ly\t 16:lz\n");
+        if (pars->scan_on) {
+            fprintf(fps, "0:orbit_id\t1:r0_init\t2:cross_id\t3:t\t4:x\t5:y\t6:z\t7:px\t8:py\t9:pz\t10:chi1x\t11:chi1y\t12:chi1z\t13:chi2x\t14:chi2y\t15:chi2z\t16:E\t17:lx\t18:ly\t19:lz\t20:r\t21:pr\n");
+        } else {
+            fprintf(fps, "0:t\t 1:x\t 2:y\t 3:z\t 4:px\t 5:py\t 6:pz\t 7:chi1x\t 8:chi1y\t 9:chi1z\t 10:chi2x\t 11:chi2y\t 12:chi2z\t 13:E\t 14:lx\t 15:ly\t 16:lz\n");
+        }
+    }
+
+    if (pars->scan_on) {
+
+        if (pars->motion != Motion_Generic) {
+            fprintf(stderr, "Error: scan mode currently supports only motion = generic.\n");
+            FreeParameters(pars);
+            return 1;
+        }
+
+        if (!pars->poincare_on) {
+            fprintf(stderr, "Error: scan mode requires poincare_on = 1.\n");
+            FreeParameters(pars);
+            return 1;
+        }
+
+        if (pars->poincare_surface != PoincareSurface_Z) {
+            fprintf(stderr, "Error: scan mode currently supports only poincare_surface = z.\n");
+            FreeParameters(pars);
+            return 1;
+        }
+
+        if (pars->scan_nr < 2) {
+            fprintf(stderr, "Error: scan_nr must be at least 2.\n");
+            FreeParameters(pars);
+            return 1;
+        }
+
+        char poincarepath[150];
+        snprintf(poincarepath, sizeof(poincarepath), "%s/poincare_scan.txt", folder);
+        printf("Poincare scan filepath: %s\n", poincarepath);
+
+        FILE *fps = fopen(poincarepath, "w+");
+        if (fps == NULL) {
+            perror("Error opening Poincare scan file");
+            FreeParameters(pars);
+            return 1;
+        }
+
+        fprintf(fps, "0:orbit_id\t1:r0_init\t2:cross_id\t3:t\t4:x\t5:y\t6:z\t7:px\t8:py\t9:pz\t10:chi1x\t11:chi1y\t12:chi1z\t13:chi2x\t14:chi2y\t15:chi2z\t16:E\t17:lx\t18:ly\t19:lz\t20:r\t21:pr\n");
+
+        double dr = (pars->scan_rmax - pars->scan_rmin) / (double)(pars->scan_nr - 1);
+
+        int orbit_id = 0;
+        for (int i = 0; i < pars->scan_nr; i++) {
+            double r0_scan = pars->scan_rmin + i * dr;
+            double p0_scan[3];
+
+            if (!TryGenericICsAtRadius(r0_scan, p0_scan)) {
+                printf("[%d/%d] r0 = %.10f -> invalid ICs\n", i + 1, pars->scan_nr, r0_scan);
+                continue;
+            }
+
+            int n_cross = RunGenericScanOrbit(fps, orbit_id, r0_scan, p0_scan);
+
+            printf("[%d/%d] orbit_id = %d, r0 = %.10f, crossings = %d\n",
+                   i + 1, pars->scan_nr, orbit_id, r0_scan, n_cross);
+
+            orbit_id++;
+        }
+
+        fclose(fps);
+
+        char metadatafile[150];
+        snprintf(metadatafile, sizeof(metadatafile), "%s/metadata.txt", folder);
+        WriteMetadataFile(pars, metadatafile);
+
+        printf("Scan finished. Valid orbits: %d\n", orbit_id);
+
+        FreeParameters(pars);
+        return 0;
     }
 
     // Wrap the initial values into one single variable
@@ -195,8 +537,10 @@ int main(int argc, char *argv[]){
     // double Q[3], P[3];
     //    CartesianToSpherical(r, p, Q, P); 
 
-    fprintf(fp, "%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
-        t, r[0], r[1], r[2], p[0], p[1], p[2], chi1[0], chi1[1], chi1[2], chi2[0], chi2[1], chi2[2], H*(pars->nu), l[0], l[1], l[2]);  
+    if (!pars->scan_on && fp != NULL) {
+        fprintf(fp, "%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
+            t, r[0], r[1], r[2], p[0], p[1], p[2], chi1[0], chi1[1], chi1[2], chi2[0], chi2[1], chi2[2], H*(pars->nu), l[0], l[1], l[2]);
+    }
 
     // Save the values of the spin magnitudes (they are constant)
     // FIXME: They could be added in the pars structure.
@@ -237,6 +581,9 @@ int main(int argc, char *argv[]){
         chi1_prev[i] = chi1[i];
         chi2_prev[i] = chi2[i];
     }
+    int orbit_id = 0;
+    int cross_id = 0;
+    double r0_init = pars->x0;
 
     // ****************
     // Solving the ODEs
@@ -342,9 +689,9 @@ int main(int argc, char *argv[]){
     // Q = CarterLikeConstant(r, p, chi1, chi2);
     // CartesianToSpherical(r, p, Q, P); 
 
-    if (t <= tmax_traj) {
-    fprintf(fp, "%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
-            t, r[0], r[1], r[2], p[0], p[1], p[2], chi1[0], chi1[1], chi1[2], chi2[0], chi2[1], chi2[2], H*(pars->nu), l[0], l[1], l[2]);
+    if (!pars->scan_on && fp != NULL && t <= tmax_traj) {
+        fprintf(fp, "%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
+                t, r[0], r[1], r[2], p[0], p[1], p[2], chi1[0], chi1[1], chi1[2], chi2[0], chi2[1], chi2[2], H*(pars->nu), l[0], l[1], l[2]);
     }
     
     // Check for Poincare section crossing
@@ -399,14 +746,35 @@ int main(int argc, char *argv[]){
             }
 
             if (write_point) {
-                fprintf(fps, "%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
-                        t_cross,
-                        r_cross[0], r_cross[1], r_cross[2],
-                        p_cross[0], p_cross[1], p_cross[2],
-                        chi1_cross[0], chi1_cross[1], chi1_cross[2],
-                        chi2_cross[0], chi2_cross[1], chi2_cross[2],
-                        H_cross*(pars->nu),
-                        l_cross[0], l_cross[1], l_cross[2]);
+                if (pars->scan_on) {
+                    if (t_cross >= tmax_traj) {
+                        double pr_cross, dpr_dummy[6];
+                        double rmod_cross = get_mod(r_cross);
+                        get_pr(r_cross, p_cross, &pr_cross, dpr_dummy);
+
+                        fprintf(fps, "%d\t%.16f\t%d\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
+                                orbit_id, r0_init, cross_id,
+                                t_cross,
+                                r_cross[0], r_cross[1], r_cross[2],
+                                p_cross[0], p_cross[1], p_cross[2],
+                                chi1_cross[0], chi1_cross[1], chi1_cross[2],
+                                chi2_cross[0], chi2_cross[1], chi2_cross[2],
+                                H_cross*(pars->nu),
+                                l_cross[0], l_cross[1], l_cross[2],
+                                rmod_cross, pr_cross);
+
+                        cross_id++;
+                    }
+                } else {
+                    fprintf(fps, "%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
+                            t_cross,
+                            r_cross[0], r_cross[1], r_cross[2],
+                            p_cross[0], p_cross[1], p_cross[2],
+                            chi1_cross[0], chi1_cross[1], chi1_cross[2],
+                            chi2_cross[0], chi2_cross[1], chi2_cross[2],
+                            H_cross*(pars->nu),
+                            l_cross[0], l_cross[1], l_cross[2]);
+                }
             }
         }
     }
@@ -435,9 +803,12 @@ int main(int argc, char *argv[]){
 
     } while (t < tmax_total);
 
-    fclose(fp);
+    if (fp != NULL) fclose(fp);
     if (fps != NULL) fclose(fps);
-    printf("Data written successfully to %s\n", filepath);
+
+    if (!pars->scan_on) {
+        printf("Data written successfully to %s\n", filepath);
+    }
 
     // Write metadata file (same folder)
     char metadatafile[150];
@@ -448,4 +819,3 @@ int main(int argc, char *argv[]){
     FreeParameters(pars);
 
 }
-

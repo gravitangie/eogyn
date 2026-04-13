@@ -250,6 +250,42 @@ void EquatorialICs(double *x0)
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
 //                                     Generic initial conditions                                     //
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+static int BracketGenericPz(double pz_min, double pz_max, int nscan, double *a, double *b)
+{
+    const double tol = 1e-12;
+
+    double pz_prev = pz_min;
+    double f_prev  = EnergyCondition_Generic(pz_prev);
+
+    if (fabs(f_prev) < tol) {
+        *a = pz_prev;
+        *b = pz_prev;
+        return 1;
+    }
+
+    for (int i = 1; i <= nscan; i++) {
+        double frac = (double)i / (double)nscan;
+        double pz    = pz_min + frac * (pz_max - pz_min);
+        double f     = EnergyCondition_Generic(pz);
+
+        if (fabs(f) < tol) {
+            *a = pz;
+            *b = pz;
+            return 1;
+        }
+
+        if (f_prev * f < 0.) {
+            *a = pz_prev;
+            *b = pz;
+            return 1;
+        }
+
+        pz_prev = pz;
+        f_prev  = f;
+    }
+
+    return 0;
+}
 
 void GenericICs(double *p0)
 {
@@ -265,6 +301,54 @@ void GenericICs(double *p0)
     p0[1] = py0;
     p0[2] = pz0;
 
+}
+
+int TryGenericICsAtRadius(double r0, double *p0)
+{
+    // Save current values
+    double x0_old = pars->x0;
+    double y0_old = pars->y0;
+    double z0_old = pars->z0;
+
+    // Scan is along p_r = 0 on the section z = 0, y = 0
+    pars->x0 = r0;
+    pars->y0 = 0.;
+    pars->z0 = 0.;
+
+    double py0 = pars->pphi0 / pars->x0;
+
+    // We keep the same branch as in GenericICs: pz <= 0
+    double a, b, pz0;
+    int ok = BracketGenericPz(-0.5, 0.0, 200, &a, &b);
+
+    if (!ok) {
+        pars->x0 = x0_old;
+        pars->y0 = y0_old;
+        pars->z0 = z0_old;
+        return 0;
+    }
+
+    if (fabs(b - a) < 1e-14) {
+        pz0 = a;
+    } else {
+        Secant_v2(EnergyCondition_Generic, a, b, 1e-10, &pz0);
+    }
+
+    // Optional residual check
+    double residual = fabs(EnergyCondition_Generic(pz0));
+    if (residual > 1e-8) {
+        pars->x0 = x0_old;
+        pars->y0 = y0_old;
+        pars->z0 = z0_old;
+        return 0;
+    }
+
+    p0[0] = 0.;
+    p0[1] = py0;
+    p0[2] = pz0;
+
+    // Keep scanned radius in pars for the orbit that will be run next
+    return 1;
 }
 
 // Get Heff as a function of pz (for generic ICs)
