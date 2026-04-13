@@ -289,18 +289,35 @@ static int BracketGenericPz(double pz_min, double pz_max, int nscan, double *a, 
 
 void GenericICs(double *p0)
 {
-
     // Get py with the initial angular momentum
-    double py0 = (pars->pphi0)/(pars->x0);
+    double py0 = (pars->pphi0) / (pars->x0);
 
-    double pz0;
-    pz0 = Newton(EnergyCondition_Generic, get_dHeffdpz, -0.5, 0., 1e-10);
-    printf("Newton's method found pz0: %.16f\n", pz0);
+    // Keep the same branch as in the scan: pz <= 0
+    double a, b, pz0;
+    int ok = BracketGenericPz(-0.5, 0.0, 200, &a, &b);
+
+    if (!ok) {
+        perror("Error: could not bracket a valid pz root for generic initial conditions.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (fabs(b - a) < 1e-14) {
+        pz0 = a;
+    } else {
+        Secant_v2(EnergyCondition_Generic, a, b, 1e-10, &pz0);
+    }
+
+    double residual = fabs(EnergyCondition_Generic(pz0));
+    if (residual > 1e-8) {
+        perror("Error: generic initial conditions do not satisfy the energy constraint accurately enough.\n");
+        exit(EXIT_FAILURE);
+    }
+
+    printf("Secant method found pz0: %.16f\n", pz0);
 
     p0[0] = 0.;
     p0[1] = py0;
     p0[2] = pz0;
-
 }
 
 int TryGenericICsAtRadius(double r0, double *p0)

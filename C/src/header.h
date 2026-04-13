@@ -184,7 +184,6 @@ void EquatorialICs(double *x0);
 double EnergyCondition_Generic(double pz);
 double get_dHeffdpz(double pz);
 void GenericICs(double *p0);
-static int BracketGenericPz(double pz_min, double pz_max, int nscan, double *a, double *b);
 int TryGenericICsAtRadius(double r0, double *p0);
 
 // Functions in utils.c
@@ -215,3 +214,8 @@ void Secant(double(*fun)(double), double x0, double tol, double *zero);
 void Secant_v2(double(*fun)(double), double a, double b, double tol, double *zero);
 double Newton(double(*fun)(double), double(*fun_der)(double), double a, double b, double tol);
 void QuarticPolyRoots(double coefs[], double roots[]);
+
+// Functions in run.c
+void BuildOutputFolderName(char *folder, size_t folder_size);
+int RunScanMode(const char *folder);
+int RunSingleMode(const char *folder);
