@@ -1,0 +1,43 @@
+# example parfile
+
+# binary parameters
+q      = 1000000.
+chi1x0 = 0.
+chi1y0 = 0.
+chi1z0 = 0.
+chi2x0 = 0.
+chi2y0 = 0.
+chi2z0 = 0.
+
+# type of motion
+motion = generic
+
+# orbital parameters
+x0 = 10.
+y0 = 0.
+z0 = 0.
+
+# constants of motion
+E0    = 0.98
+pphi0 = 4.0
+
+# options for different functions
+pots = resummed
+
+# ODE solver settings
+coords        = canonical
+solver        = RK4
+step          = standard
+dt            = 0.2
+tmax_traj     = 0
+tmax_poincare = 500000
+
+poincare_on = 1
+poincare_surface = z
+poincare_direction = positive
+poincare_value = 0.0
+
+scan_on = 1
+scan_rmin = 7.0
+scan_rmax = 24.0
+scan_nr = 35
