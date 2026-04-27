@@ -548,6 +548,13 @@ int RunScanMode(const char *folder)
 
     fclose(fps);
 
+    if (PostProcessRotationScan(folder, poincarepath) != 0) {
+        pars->x0 = x0_input;
+        pars->y0 = y0_input;
+        pars->z0 = z0_input;
+        return 1;
+    }
+
     pars->x0 = x0_input;
     pars->y0 = y0_input;
     pars->z0 = z0_input;

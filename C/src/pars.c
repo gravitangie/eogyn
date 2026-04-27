@@ -87,6 +87,10 @@ void SetDefaults(Parameters *pars)
     pars->scan_rmax = 20.0;
     pars->scan_nr   = 100;
 
+    // Rotation-number post-processing settings
+    pars->rotation_min_crossings_for_center = 50;
+    pars->rotation_n_center_orbits          = 5;
+
 }
 
 // Parse the command line to get the name of the parfile & read it 
@@ -262,6 +266,10 @@ void AssignValues(Parameters *pars, char *key, char *value)
         pars->scan_rmax = atof(value);
     } else if (strcmp(key, "scan_nr") == 0) {
         pars->scan_nr = atoi(value);
+    } else if (strcmp(key, "rotation_min_crossings_for_center") == 0) {
+        pars->rotation_min_crossings_for_center = atoi(value);
+    } else if (strcmp(key, "rotation_n_center_orbits") == 0) {
+        pars->rotation_n_center_orbits = atoi(value);
     }
 }
 
@@ -405,5 +413,11 @@ void WriteMetadataFile(Parameters *pars, char *filepath)
     fprintf(fp, "scan_rmin = %.16f\n", pars->scan_rmin);
     fprintf(fp, "scan_rmax = %.16f\n", pars->scan_rmax);
     fprintf(fp, "scan_nr = %d\n", pars->scan_nr);
+
+    // Rotation-number post-processing settings
+    fprintf(fp, "rotation_min_crossings_for_center = %d\n",
+            pars->rotation_min_crossings_for_center);
+    fprintf(fp, "rotation_n_center_orbits = %d\n",
+            pars->rotation_n_center_orbits);
 
 }

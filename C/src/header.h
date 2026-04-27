@@ -136,6 +136,10 @@ typedef struct Parameters {
     double scan_rmax;
     int scan_nr;
 
+    // Rotation-number post-processing settings
+    int rotation_min_crossings_for_center;
+    int rotation_n_center_orbits;
+
 } Parameters;
 
 extern Parameters *pars; 
@@ -219,3 +223,6 @@ void QuarticPolyRoots(double coefs[], double roots[]);
 void BuildOutputFolderName(char *folder, size_t folder_size);
 int RunScanMode(const char *folder);
 int RunSingleMode(const char *folder);
+
+// Functions in rotation.c
+int PostProcessRotationScan(const char *folder, const char *poincare_scan_path);
