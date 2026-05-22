@@ -314,10 +314,10 @@ void get_rhs_canonical(double t, double W[], double dW[])
     }
 
     const double eps = 1.0e-30;
-    dW[6] = modchi1 * (- xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]); // dalpha1dt = dH/dxi1
-    dW[7] = - modchi1*sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1)); // dxi1dt = - dH/dalpha1
-    dW[8] = modchi2 * (- xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]); // dalpha2dt = dH/dxi2
-    dW[9] = - modchi2*sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2)); // dxi2dt = - dH/dalpha2
+    dW[6] = - xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]; // dalpha1dt = (1/|chi1|) dH/dxi1
+    dW[7] = - sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1)); // dxi1dt = - (1/|chi1|) dH/dalpha1
+    dW[8] = - xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]; // dalpha2dt = (1/|chi2|) dH/dxi2
+    dW[9] = - sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2)); // dxi2dt = - (1/|chi2|) dH/dalpha2
 }
 
 
@@ -478,17 +478,15 @@ void get_rhs_canonical_transformed(double s, double W[], double dW[])
 
     const double eps = 1.0e-30;
 
-    // dalpha1dt = dH/dxi1
-    double dalpha1dt = modchi1 * (- xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]); 
+    double dalpha1dt = - xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]; // dalpha1dt = (1/|chi1|) dH/dxi1
+    double dxi1dt = - sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1)); // dxi1dt = - (1/|chi1|) dH/dalpha1
+    double dalpha2dt = - xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]; // dalpha2dt = (1/|chi2|) dH/dxi2
+    double dxi2dt = - sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2)); // dxi2dt = - (1/|chi2|) dH/dalpha2
+
+    // Spin variables
     dW[6] = g * dalpha1dt; 
-    // dxi1dt = - dH/dalpha1
-    double dxi1dt = - modchi1*sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1)); 
     dW[7] = g * dxi1dt;
-    // dalpha2dt = dH/dxi2
-    double dalpha2dt = modchi2 * (- xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]);
     dW[8] = g * dalpha2dt;
-    // dxi2dt = - dH/dalpha2
-    double dxi2dt = - modchi2*sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2)); 
     dW[9] = g * dxi2dt;
 
     // dt/ds = dK/dpt = r
