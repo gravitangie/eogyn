@@ -143,7 +143,7 @@ int main(int argc, char *argv[]){
     // Integration details
     double t    = 0.;
     double s    = 0.;
-    double ds   = 0.0001; // FIXME: Could add in parfile (for now 0.0001 is perfect, set as default)
+    double ds   = pars->ds; // step in rescaled time s (parfile key "ds"; default 0.0001)
     double dt   = pars->dt; // time step (for RK4; not used for RKGL6)
     double tmax = pars->tmax;
 
@@ -191,14 +191,38 @@ int main(int argc, char *argv[]){
     // If evolving extended phase space, add extra variables.
     const double eps = 1.0e-30;
     double alpha1, xi1, alpha2, xi2, sqrt1mxi12, sqrt1mxi22;
-    
-    if (pars->coords == Coords_Canonical) {
+
+    if (pars->step == Step_Split) {
+        // Strang split: spins stay as VECTORS (w[6..11]); no canonical chart,
+        // no chart pole, no 1/sqrt(1-xi^2). Just set up the extended phase space.
+        w[12] = 0.;   // Initial time
+        w[13] = -H0;  // Conjugate momentum to the physical time, pt
+        printf("Spin evolution: Strang operator split (RKGL6 orbital + exact Rodrigues spin rotation).\n");
+    } else if (pars->coords == Coords_Canonical) {
+        // Build per-spin rotated charts so that the chart pole is orthogonal
+        // to the initial spin direction (Option A: pole fixed at init).
+        // After this, the chart-frame initial spin lies along x', i.e.
+        // alpha = 0 and xi = 0 -- as far as possible from the chart pole.
+        BuildSpinChartRotation(chi1, pars->R1);
+        BuildSpinChartRotation(chi2, pars->R2);
+
+        // Move the initial spins into the chart frame to read off (alpha, xi).
+        double chi1_chart[3], chi2_chart[3];
+        RotateVec(pars->R1, chi1, chi1_chart);
+        RotateVec(pars->R2, chi2, chi2_chart);
+
         // New canonical variables to be evolved
         for (int i = 0; i < 6; i++) W[i] = w[i]; // x, y, z, px, py, pz
-        W[6] = atan2(w[7], w[6]); // alpha1 = atan( chi1y/chi1x )
-        W[7] = w[8] / (modchi1 + eps); // xi1 = chi1z / |chi1|
-        W[8] = atan2(w[10], w[9]); // alpha2 = atan( chi2y/chi2x )
-        W[9] = w[11] / (modchi2 + eps); // xi2 = chi2z / |chi2|
+        W[6] = atan2(chi1_chart[1], chi1_chart[0]); // alpha1 in chart frame
+        W[7] = chi1_chart[2] / (modchi1 + eps);     // xi1   in chart frame
+        W[8] = atan2(chi2_chart[1], chi2_chart[0]); // alpha2 in chart frame
+        W[9] = chi2_chart[2] / (modchi2 + eps);     // xi2   in chart frame
+
+        printf("Canonical chart 1: chart pole (lab) = (%.6f, %.6f, %.6f), alpha1_0 = %.6e, xi1_0 = %.6e\n",
+               pars->R1[2][0], pars->R1[2][1], pars->R1[2][2], W[6], W[7]);
+        printf("Canonical chart 2: chart pole (lab) = (%.6f, %.6f, %.6f), alpha2_0 = %.6e, xi2_0 = %.6e\n",
+               pars->R2[2][0], pars->R2[2][1], pars->R2[2][2], W[8], W[9]);
+
         if (pars->step == Step_Transformed) {
             W[10] = 0.; // Initial time
             W[11] = -H0; // Conjugate momentum to the physical time, pt
@@ -214,9 +238,40 @@ int main(int argc, char *argv[]){
     // Solving the ODEs
     // ****************
 
+    // Poincare section output (only for the Strang split). Records z = 0 upward
+    // crossings with the spins written as the canonical pair (alpha_i, S_{i,z}).
+    FILE *fps = NULL;
+    if (pars->step == Step_Split) {
+        char sectionpath[200];
+        snprintf(sectionpath, sizeof(sectionpath), "%s/section.txt", folder);
+        fps = fopen(sectionpath, "w+");
+        if (fps != NULL)
+            fprintf(fps, "0:t\t 1:x\t 2:y\t 3:px\t 4:py\t 5:pz\t 6:alpha1\t 7:S1z\t 8:alpha2\t 9:S2z\n");
+    }
+
+    // Previous lab-frame state, for section-crossing interpolation
+    double tprev = t;
+    double rprev[3], pprev[3], c1prev[3], c2prev[3];
+    for (int i = 0; i < 3; i++) { rprev[i]=r[i]; pprev[i]=p[i]; c1prev[i]=chi1[i]; c2prev[i]=chi2[i]; }
+
     do {
-        
-        if (pars->coords == Coords_Canonical) {
+
+        if (pars->step == Step_Split) { // Strang split on vector spins
+
+            StrangStepTransformed(s, w, ds);
+
+            // Update variables (spins are already vectors -- no reconstruction)
+            for (int i = 0; i < 3; i++) {
+                r[i]    = w[i];
+                p[i]    = w[i + 3];
+                chi1[i] = w[i + 6];
+                chi2[i] = w[i + 9];
+            }
+
+            t = w[12];
+            s = s + ds;
+
+        } else if (pars->coords == Coords_Canonical) {
 
             if (pars->step == Step_Transformed) { 
 
@@ -235,12 +290,18 @@ int main(int argc, char *argv[]){
                 sqrt1mxi12 = sqrt(1. - xi1*xi1);
                 sqrt1mxi22 = sqrt(1. - xi2*xi2);
 
-                chi1[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
-                chi1[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
-                chi1[2] = modchi1 * xi1;
-                chi2[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
-                chi2[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
-                chi2[2] = modchi2 * xi2;
+                // Reconstruct spins in the rotated chart frame, then rotate to lab.
+                {
+                    double chi1_chart[3], chi2_chart[3];
+                    chi1_chart[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
+                    chi1_chart[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
+                    chi1_chart[2] = modchi1 * xi1;
+                    chi2_chart[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
+                    chi2_chart[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
+                    chi2_chart[2] = modchi2 * xi2;
+                    RotateVecT(pars->R1, chi1_chart, chi1);
+                    RotateVecT(pars->R2, chi2_chart, chi2);
+                }
 
                 t = W[10];
                 s = s + ds;
@@ -263,12 +324,18 @@ int main(int argc, char *argv[]){
                 sqrt1mxi12 = sqrt(1. - xi1*xi1);
                 sqrt1mxi22 = sqrt(1. - xi2*xi2);
 
-                chi1[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
-                chi1[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
-                chi1[2] = modchi1 * xi1;
-                chi2[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
-                chi2[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
-                chi2[2] = modchi2 * xi2;
+                // Reconstruct spins in the rotated chart frame, then rotate to lab.
+                {
+                    double chi1_chart[3], chi2_chart[3];
+                    chi1_chart[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
+                    chi1_chart[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
+                    chi1_chart[2] = modchi1 * xi1;
+                    chi2_chart[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
+                    chi2_chart[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
+                    chi2_chart[2] = modchi2 * xi2;
+                    RotateVecT(pars->R1, chi1_chart, chi1);
+                    RotateVecT(pars->R2, chi2_chart, chi2);
+                }
 
                 t = t + dt; // dt is set in the parfile; default is 0.5
 
@@ -306,7 +373,13 @@ int main(int argc, char *argv[]){
                 t = t + dt; // dt is set in the parfile; default is 0.5
             }
         }
-    
+
+        // Poincare section: record z = 0 upward crossings (no-op if fps == NULL).
+        WriteSectionCrossing(fps, tprev, rprev, pprev, c1prev, c2prev,
+                             t, r, p, chi1, chi2);
+        tprev = t;
+        for (int i = 0; i < 3; i++) { rprev[i]=r[i]; pprev[i]=p[i]; c1prev[i]=chi1[i]; c2prev[i]=chi2[i]; }
+
     // Evaluate the Hamiltonian and the orbital angular momentum
     Hamiltonian(r, p, pars->nu, chi1, chi2, &dummy, &H, dummyd, dummyd);
     get_l(r, p, l, dummyd2);
@@ -333,6 +406,7 @@ int main(int argc, char *argv[]){
     } while (t < tmax); 
 
     fclose(fp);
+    if (fps != NULL) fclose(fps);
     printf("Data written successfully to %s\n", filepath);
 
     // Write metadata file (same folder)

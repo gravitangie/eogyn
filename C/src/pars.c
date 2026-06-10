@@ -64,12 +64,21 @@ void SetDefaults(Parameters *pars)
     pars->pots  = Pots_Resummed;
 
     // Type of coordinates (standard with non-canonical spins, or canonical)
-    pars->coords = Coords_Canonical; 
+    pars->coords = Coords_Canonical;
+
+    // Canonical-chart rotations: identity by default; rebuilt at runtime in
+    // main.c once the initial spin directions are known.
+    for (int i = 0; i < 3; i++)
+        for (int j = 0; j < 3; j++) {
+            pars->R1[i][j] = (i == j) ? 1.0 : 0.0;
+            pars->R2[i][j] = (i == j) ? 1.0 : 0.0;
+        }
 
     // ODE solver settings
     pars->solver         = ODESolver_RKGL6;
     pars->step           = Step_Transformed; // FIXME: Could think of turning this on only for eccentric
     pars->dt             = 0.5;
+    pars->ds             = 0.0001;
     pars->tmax           = 1000.;
     pars->max_iter_RKGL6 = 100.;
     pars->tol_RKGL6      = 1e-15;
@@ -150,6 +159,8 @@ void AssignValues(Parameters *pars, char *key, char *value)
         pars->pphi0 = atof(value);
     } else if (strcmp(key, "dt") == 0) {
         pars->dt = atof(value);
+    } else if (strcmp(key, "ds") == 0) {
+        pars->ds = atof(value);
     } else if (strcmp(key, "tmax") == 0) {
         pars->tmax = atof(value);
     } else if (strcmp(key, "max_iter_RKGL6") == 0) {
@@ -339,8 +350,9 @@ void WriteMetadataFile(Parameters *pars, char *filepath)
         fprintf(fp, "max_iter_RKGL6 = %.16f\n", pars->max_iter_RKGL6);
         fprintf(fp, "tol_RKGL6 = %.16f\n", pars->tol_RKGL6);
     }
-    fprintf(fp, "step = %s\n", step_opt[pars->step]); 
-    fprintf(fp, "dt = %.16f\n", pars->dt); 
-    fprintf(fp, "tmax = %.16f\n", pars->tmax); 
+    fprintf(fp, "step = %s\n", step_opt[pars->step]);
+    fprintf(fp, "dt = %.16f\n", pars->dt);
+    fprintf(fp, "ds = %.16e\n", pars->ds);
+    fprintf(fp, "tmax = %.16f\n", pars->tmax);
 
 }

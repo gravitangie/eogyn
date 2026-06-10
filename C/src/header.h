@@ -58,9 +58,10 @@ static const char* const coords_opt[] = {"standard", "canonical", "undefined"};
 enum{
     Step_Standard,
     Step_Transformed,
+    Step_Split,       // Strang operator split: RKGL6 orbital block + exact (Rodrigues) spin rotation
     Step_NOPT
 };
-static const char* const step_opt[] = {"standard", "transformed", "undefined"};
+static const char* const step_opt[] = {"standard", "transformed", "split", "undefined"};
 
 // List of options for the potentials  
 enum{
@@ -96,10 +97,18 @@ typedef struct Parameters {
     // Type of coordinates (standard with non-canonical spins, or canonical)
     int coords;
 
+    // Rotation matrices used by the canonical chart (lab -> chart frame).
+    // Rows of R_i are the chart-frame basis vectors expressed in the lab frame.
+    // Chosen at init so that the chart pole (chart-frame z-axis) is orthogonal
+    // to the initial spin direction, keeping the chart non-singular at t = 0.
+    double R1[3][3];
+    double R2[3][3];
+
     // ODE solver settings
     int solver; // Choose the type of solver
     int step; // Standard or rescaled
     double dt;
+    double ds;  // step in the rescaled time s (used by transformed / split schemes)
     double tmax;
     double max_iter_RKGL6;
     double tol_RKGL6;
@@ -127,6 +136,12 @@ void get_rhs(double t, double w[], double dw[]);
 void get_rhs_canonical(double t, double W[], double dW[]);
 void get_rhs_transformed(double s, double w[], double dw[]);
 void get_rhs_canonical_transformed(double s, double W[], double dW[]);
+void get_rhs_orbital_transformed(double s, double w[], double dw[]);
+void SpinPrecessionStep(double w[], double h);
+void StrangStepTransformed(double s, double w[], double h);
+void WriteSectionCrossing(FILE *fps,
+                          double tp, double rp[], double pp[], double c1p[], double c2p[],
+                          double tc, double rc[], double pc[], double c1c[], double c2c[]);
 double CarterLikeConstant(double r[], double p[], double chi1[], double chi2[]);
 double PhotonPotentialCondition(double modr);
 void AdiabaticLightRing(double *rLR);
@@ -174,6 +189,10 @@ void trimString(char *str);
 void swap(double *xp, double *yp);
 void bubbleSort(double arr[], int n);
 void CartesianToSpherical(double r[], double p[], double *Q, double *P);
+void BuildSpinChartRotation(double chi[], double R[3][3]);
+void RotateVec(double R[3][3], double v_in[], double v_out[]);
+void RotateVecT(double R[3][3], double v_in[], double v_out[]);
+void RodriguesRotate(double v[], double k[], double angle, double out[]);
 
 // Functions in solvers.c
 extern void (*ODESolver)(double t, double *Y, double h, int N_eq, void (*RHS)(double, double*, double*));

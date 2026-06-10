@@ -236,16 +236,24 @@ void get_rhs(double t, double w[], double dw[])
         cross(dHdchi1, chi1, dHdchi1xchi1);
         cross(dHdchi2, chi2, dHdchi2xchi2);
 
+    // Spin EOM: dchi_i/dt = (1/m_i^2)(dH_phys/dchi_i) x chi_i. The code uses Hhat = H_phys/mu
+    // and dimensionless time t = T/M, so the prefactor on (dHhat/dchi_i) is mu/m_i^2 = nu/X_i^2
+    // (M=1) -- NOT 1/X_i^2 (see the spin-EOM discussion in the paper).
+    double X1, X2;
+        get_X1X2(nu, &X1, &X2);
+        double iX1sq = nu/(X1*X1); // prefactor mu/m_i^2 = nu/X_i^2 (M=1); see Sec. on spin EOMs
+        double iX2sq = nu/(X2*X2);
+
     // *******
     // * rhs *
     // *******
 
     for (int i = 0; i < 3; i++)
     {
-        dw[i]     = dH[i + 3];        // x, y, z
-        dw[i + 3] = - dH[i];          // px, py, pz
-        dw[i + 6] = dHdchi1xchi1[i];  // chi1x, chi1y, chi1z
-        dw[i + 9] = dHdchi2xchi2[i];  // chi2x, chi2y, chi2z
+        dw[i]     = dH[i + 3];                 // x, y, z
+        dw[i + 3] = - dH[i];                   // px, py, pz
+        dw[i + 6] = iX1sq*dHdchi1xchi1[i];     // chi1x, chi1y, chi1z
+        dw[i + 9] = iX2sq*dHdchi2xchi2[i];     // chi2x, chi2y, chi2z
     }
 }
 
@@ -274,34 +282,43 @@ void get_rhs_canonical(double t, double W[], double dW[])
     alpha2 = W[8];
     xi2    = W[9];
     
-    // FIXME: this could be changed and updated during the evolution by defining pars->modchi and updating it in the dynamics. 
+    // FIXME: this could be changed and updated during the evolution by defining pars->modchi and updating it in the dynamics.
     // However even with the non-canonical evolution, the error on the conservation of the spin magnitude is of the order of 10^-14.
     double modchi1 = sqrt((pars->chi1x0)*(pars->chi1x0) + (pars->chi1y0)*(pars->chi1y0) + (pars->chi1z0)*(pars->chi1z0));
     double modchi2 = sqrt((pars->chi2x0)*(pars->chi2x0) + (pars->chi2y0)*(pars->chi2y0) + (pars->chi2z0)*(pars->chi2z0));
 
-    // Get the spins
-    double chi1[3], chi2[3];
+    // Reconstruct the spins in the (rotated) chart frame, then rotate to lab
+    // for the Hamiltonian call. (alpha_i, xi_i) live in the chart frame.
+    double chi1_chart[3], chi2_chart[3], chi1[3], chi2[3];
     double sqrt1mxi12 = sqrt(1. - xi1*xi1);
     double sqrt1mxi22 = sqrt(1. - xi2*xi2);
 
-    chi1[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
-    chi1[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
-    chi1[2] = modchi1 * xi1;
-    chi2[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
-    chi2[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
-    chi2[2] = modchi2 * xi2;
+    chi1_chart[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
+    chi1_chart[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
+    chi1_chart[2] = modchi1 * xi1;
+    chi2_chart[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
+    chi2_chart[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
+    chi2_chart[2] = modchi2 * xi2;
 
-    // Derivatives of the Hamiltonian
+    RotateVecT(pars->R1, chi1_chart, chi1);
+    RotateVecT(pars->R2, chi2_chart, chi2);
+
+    // Derivatives of the Hamiltonian (in lab frame)
     double Heff, H, dHeff[12], dH[12];
         Hamiltonian(r, p, nu, chi1, chi2, &Heff, &H, dHeff, dH);
 
-    // Extract derivatives wrt to the spins chi1, chi2
-    double dHdchi1[3], dHdchi2[3];
+    // Spin derivatives: extract from the lab-frame Hamiltonian output and
+    // rotate into the chart frame (dH/dchi' = R dH/dchi) before applying the
+    // chain rule for (alpha, xi).
+    double dHdchi1_lab[3], dHdchi2_lab[3];
+    double dHdchi1[3], dHdchi2[3]; // chart frame
     for (int i = 0; i < 3; i++)
     {
-        dHdchi1[i] = dH[6 + i];
-        dHdchi2[i] = dH[9 + i];
+        dHdchi1_lab[i] = dH[6 + i];
+        dHdchi2_lab[i] = dH[9 + i];
     }
+    RotateVec(pars->R1, dHdchi1_lab, dHdchi1);
+    RotateVec(pars->R2, dHdchi2_lab, dHdchi2);
 
     // *******
     // * rhs *
@@ -313,11 +330,36 @@ void get_rhs_canonical(double t, double W[], double dW[])
         dW[i + 3] = - dH[i];          // px, py, pz
     }
 
+    // Mass fractions: the canonical momentum conjugate to alpha_i is the physical
+    // spin projection S_{i,z} = m_i^2 |chi_i| xi_i, so both equations carry 1/m_i^2 = 1/X_i^2 (M = 1)
+    double X1, X2;
+        get_X1X2(nu, &X1, &X2);
+        double iX1sq = nu/(X1*X1); // prefactor mu/m_i^2 = nu/X_i^2 (M=1); see Sec. on spin EOMs
+        double iX2sq = nu/(X2*X2);
+
     const double eps = 1.0e-30;
-    dW[6] = - xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]; // dalpha1dt = (1/|chi1|) dH/dxi1
-    dW[7] = - sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1)); // dxi1dt = - (1/|chi1|) dH/dalpha1
-    dW[8] = - xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]; // dalpha2dt = (1/|chi2|) dH/dxi2
-    dW[9] = - sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2)); // dxi2dt = - (1/|chi2|) dH/dalpha2
+    dW[6] = iX1sq*(- xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]); // dalpha1dt = (1/(m1^2|chi1|)) dH/dxi1
+    dW[7] = iX1sq*(- sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1))); // dxi1dt = - (1/(m1^2|chi1|)) dH/dalpha1
+    dW[8] = iX2sq*(- xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]); // dalpha2dt = (1/(m2^2|chi2|)) dH/dxi2
+    dW[9] = iX2sq*(- sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2))); // dxi2dt = - (1/(m2^2|chi2|)) dH/dalpha2
+
+    // Chart-pole proximity warning: in chart frame |xi| = |chi_z'/|chi||, so
+    // it IS the ratio that must stay below 1. The chart is well-conditioned
+    // up to about |xi| ~ 0.99; above 0.95 we warn so the user knows the
+    // initial rotation may need to be revisited (or chart switching enabled).
+    // Throttled to fire only on a 0.01 increase of the highwater mark.
+    {
+        static double max1 = 0., max2 = 0.;
+        double r1 = fabs(xi1), r2 = fabs(xi2);
+        if (r1 > 0.95 && r1 > max1 + 0.01) {
+            fprintf(stderr, "Warning [get_rhs_canonical]: |xi1|/|chi1| = %.6f (chart pole approached, t=%.6f)\n", r1, t);
+            max1 = r1;
+        }
+        if (r2 > 0.95 && r2 > max2 + 0.01) {
+            fprintf(stderr, "Warning [get_rhs_canonical]: |xi2|/|chi2| = %.6f (chart pole approached, t=%.6f)\n", r2, t);
+            max2 = r2;
+        }
+    }
 }
 
 
@@ -368,6 +410,14 @@ void get_rhs_transformed(double s, double w[], double dw[])
     cross(dHdchi1, chi1, dHdchi1xchi1);
     cross(dHdchi2, chi2, dHdchi2xchi2);
 
+    // Spin EOM: dchi_i/dt = (1/m_i^2)(dH_phys/dchi_i) x chi_i. The code uses Hhat = H_phys/mu
+    // and dimensionless time t = T/M, so the prefactor on (dHhat/dchi_i) is mu/m_i^2 = nu/X_i^2
+    // (M=1) -- NOT 1/X_i^2 (see the spin-EOM discussion in the paper).
+    double X1, X2;
+        get_X1X2(nu, &X1, &X2);
+        double iX1sq = nu/(X1*X1); // prefactor mu/m_i^2 = nu/X_i^2 (M=1); see Sec. on spin EOMs
+        double iX2sq = nu/(X2*X2);
+
     // Transformation dt = g ds with g = |r|
     double g, dgdr[3];
     // g = modr; 
@@ -386,17 +436,234 @@ void get_rhs_transformed(double s, double w[], double dw[])
     // dchi/ds = g * {chi, H}
     for (int i = 0; i < 3; i++)
     {
-        dw[i]     = g * dH[i + 3]; 
-        dw[i + 3] = - (modr * dH[i] + (H + pt) * dgdr[i]); // when g = modr
-        dw[i + 6] = g * dHdchi1xchi1[i];
-        dw[i + 9] = g * dHdchi2xchi2[i];
+        dw[i]     = g * dH[i + 3];
+        dw[i + 3] = - (g * dH[i] + (H + pt) * dgdr[i]); 
+        dw[i + 6] = g * iX1sq*dHdchi1xchi1[i];
+        dw[i + 9] = g * iX2sq*dHdchi2xchi2[i];
     }
 
     // dt/ds = dK/dpt = g
     dw[12] = g;
 
-    // dpt/ds = -dK/dt = 0 
+    // dpt/ds = -dK/dt = 0
     dw[13] = 0.;
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+//          RIGHT-HAND SIDE FUNCTION: Orbital block of the Strang split (spins frozen)               //
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+// This is the "A" block of the operator split (see StrangStepTransformed). It advances the orbital
+// extended phase space (r, p, t, pt) under the transformed Hamiltonian K = g*(H + pt), holding the
+// spin VECTORS w[6..11] fixed (their derivatives are set to zero). The spin "B" block then rotates
+// the spins exactly (Rodrigues). Spins are still read and fed to the Hamiltonian here, because the
+// orbital potentials depend on them through a0.
+// Layout: w[0..2]=r, w[3..5]=p, w[6..8]=chi1, w[9..11]=chi2, w[12]=t, w[13]=pt(=-H0).
+void get_rhs_orbital_transformed(double s, double w[], double dw[])
+{
+    double nu = pars->nu;
+
+    // Unwrap coordinates (spins are parameters here)
+    double r[3], p[3], chi1[3], chi2[3];
+    for (int i = 0; i < 3; i++) {
+        r[i]    = w[i];
+        p[i]    = w[i + 3];
+        chi1[i] = w[i + 6];
+        chi2[i] = w[i + 9];
+    }
+
+    double pt = w[13];
+
+    // Modulus of r and unit radial vector
+    double modr = get_mod(r);
+    double n[3];
+        get_n(r, n, NULL);
+
+    // Hamiltonian and derivatives
+    double Heff, H, dHeff[12], dH[12];
+        Hamiltonian(r, p, nu, chi1, chi2, &Heff, &H, dHeff, dH);
+
+    // Time transformation dt = g ds with g = |r|^3
+    double g = modr*modr*modr;
+    double dgdr[3];
+    for (int i = 0; i < 3; i++) dgdr[i] = 3.*modr*modr * n[i];
+
+    // *******
+    // * rhs * (orbital variables only; spins frozen)
+    // *******
+    // NOTE: this uses the correct g*dH[i] in the dp/ds term. The older
+    // get_rhs_transformed has a latent typo there (it uses modr instead of g);
+    // see the message accompanying this change.
+    for (int i = 0; i < 3; i++)
+    {
+        dw[i]     = g * dH[i + 3];
+        dw[i + 3] = - (g * dH[i] + (H + pt) * dgdr[i]);
+        dw[i + 6] = 0.;   // chi1 frozen in the orbital block
+        dw[i + 9] = 0.;   // chi2 frozen in the orbital block
+    }
+
+    // dt/ds = dK/dpt = g
+    dw[12] = g;
+    // dpt/ds = -dK/dt = 0
+    dw[13] = 0.;
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+//                    SPIN BLOCK of the Strang split: exact precession (Rodrigues)                   //
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+// Helper: precession axis vectors Omega_i = (1/X_i^2) dH/dchi_i (so dchi_i/dt = Omega_i x chi_i),
+// evaluated at the (frozen) orbital state r, p and the given spins.
+static void SpinOmega(double r[], double p[], double chi1[], double chi2[],
+                      double Om1[], double Om2[])
+{
+    double nu = pars->nu;
+    double Heff, H, dHeff[12], dH[12];
+        Hamiltonian(r, p, nu, chi1, chi2, &Heff, &H, dHeff, dH);
+    double X1, X2;
+        get_X1X2(nu, &X1, &X2);
+    double iX1sq = nu/(X1*X1); // prefactor mu/m_i^2 = nu/X_i^2 (M=1); see Sec. on spin EOMs
+    double iX2sq = nu/(X2*X2);
+    for (int i = 0; i < 3; i++) {
+        Om1[i] = iX1sq * dH[6 + i];
+        Om2[i] = iX2sq * dH[9 + i];
+    }
+}
+
+// Helper: rotate v about the axis Omega by the angle |Omega|*dt (exact, Rodrigues).
+static void RotateAboutOmega(double v[], double Om[], double dt, double out[])
+{
+    double nOm = get_mod(Om);
+    if (nOm > 0.) {
+        double k[3] = { Om[0]/nOm, Om[1]/nOm, Om[2]/nOm };
+        RodriguesRotate(v, k, nOm * dt, out);
+    } else {
+        for (int i = 0; i < 3; i++) out[i] = v[i];
+    }
+}
+
+// This is the "B" block. The orbital variables (r, p, t, pt) are held FIXED, so each spin obeys a
+// constant-axis precession dchi_i/ds = g * Omega_i x chi_i, with the precession axis vector
+//   Omega_i = (1/X_i^2) dH/dchi_i   (the same combination as the cross-product EOM in get_rhs).
+// With r frozen, g is constant, so each spin's exact flow over the step is a rigid rotation about
+// Omega_i by angle |Omega_i| * g * h = |Omega_i| * (physical time of step), done exactly by
+// Rodrigues for ANY angle -- so the stiff 1/X_2^2 secondary precession is absorbed with no
+// step-size penalty and |chi_i| is conserved to roundoff. No spin chart, hence no pole.
+//
+// MIDPOINT REFINEMENT (time-reversible): Omega_i depends weakly on the spins themselves (spin-spin
+// coupling via a0, S, S*). Instead of freezing Omega_i at the incoming spins, we evaluate it at the
+// HALF-ROTATION midpoint and rotate by the full angle about that axis. A fixed-point iteration
+// brings Omega_i to self-consistency at the midpoint:
+//     chi_i_mid = R(Omega_i, |Omega_i| g h / 2) chi_i_in ,   Omega_i = Omega_i(chi_1_mid, chi_2_mid)
+// Because the half-rotation point is the same whether the step is taken forward or backward, the
+// resulting map satisfies B(h) o B(-h) = id (time-reversible), which removes the leading spin-spin
+// splitting error while keeping the rotation (and |chi_i|) exact. Convergence is fast: the contraction
+// factor scales with (step)*(spin-spin coupling), independent of the fast 1/X_2^2 precession, since
+// Omega is essentially insensitive to the (fast, tiny) secondary spin direction.
+void SpinPrecessionStep(double w[], double h)
+{
+    double r[3], p[3], chi1[3], chi2[3];
+    for (int i = 0; i < 3; i++) {
+        r[i]    = w[i];
+        p[i]    = w[i + 3];
+        chi1[i] = w[i + 6];
+        chi2[i] = w[i + 9];
+    }
+
+    // Same time-transformation factor g = |r|^3 as the orbital block; dtau = physical time of step.
+    double modr = get_mod(r);
+    double g    = modr*modr*modr;
+    double dtau = g * h;
+
+    // Initial guess: Omega at the incoming spins.
+    double Om1[3], Om2[3];
+        SpinOmega(r, p, chi1, chi2, Om1, Om2);
+
+    // Fixed-point iteration for the self-consistent midpoint precession axes.
+    const int    maxit = (int) pars->max_iter_RKGL6;
+    const double tol   = pars->tol_RKGL6;
+    for (int it = 0; it < maxit; it++) {
+        double chi1m[3], chi2m[3], Om1n[3], Om2n[3];
+        RotateAboutOmega(chi1, Om1, 0.5*dtau, chi1m); // half-rotation midpoint spins
+        RotateAboutOmega(chi2, Om2, 0.5*dtau, chi2m);
+        SpinOmega(r, p, chi1m, chi2m, Om1n, Om2n);    // re-evaluate Omega at the midpoint
+
+        // Relative convergence on the precession axes (handles the |Om1|~O(1) vs |Om2|~1/X_2 scales)
+        double d1 = 0., d2 = 0., n1 = 0., n2 = 0.;
+        for (int i = 0; i < 3; i++) {
+            d1 += (Om1n[i]-Om1[i])*(Om1n[i]-Om1[i]); n1 += Om1n[i]*Om1n[i];
+            d2 += (Om2n[i]-Om2[i])*(Om2n[i]-Om2[i]); n2 += Om2n[i]*Om2n[i];
+        }
+        for (int i = 0; i < 3; i++) { Om1[i] = Om1n[i]; Om2[i] = Om2n[i]; }
+        if (sqrt(d1) <= tol*(sqrt(n1)+1.0) && sqrt(d2) <= tol*(sqrt(n2)+1.0)) break;
+    }
+
+    // Final full rotation about the converged midpoint axes.
+    double out1[3], out2[3];
+    RotateAboutOmega(chi1, Om1, dtau, out1);
+    RotateAboutOmega(chi2, Om2, dtau, out2);
+    for (int i = 0; i < 3; i++) { w[6 + i] = out1[i]; w[9 + i] = out2[i]; }
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+//                    STRANG-SPLIT STEP: A(h/2) o B(h) o A(h/2)  (second order, symmetric)           //
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+// One full step of the operator-split integrator on the extended phase space w[14] (spins as
+// vectors). The orbital half-steps use the symplectic RKGL6 collocation solver on the orbital-only
+// RHS (spins frozen); the spin step rotates the spins exactly (Rodrigues). The composition is
+// symmetric/time-reversible and preserves |chi_i|; it is the non-canonically symplectic scheme of
+// Lubich-Walther-Bruegmann (PRD 81, 104025) adapted to this EOB Hamiltonian.
+void StrangStepTransformed(double s, double w[], double h)
+{
+    RK_GaussLegendre6(s,          w, 0.5*h, 14, get_rhs_orbital_transformed); // A(h/2)
+    SpinPrecessionStep(w, h);                                                 // B(h)
+    RK_GaussLegendre6(s + 0.5*h,  w, 0.5*h, 14, get_rhs_orbital_transformed); // A(h/2)
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+//                             POINCARE SECTION OUTPUT (z = 0 upward crossing)                       //
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+// Detects a crossing of the surface of section z = 0 with z increasing (zp <= 0 < zc) between the
+// previous (subscript p) and current (subscript c) states, linearly interpolates the state to the
+// crossing, and writes a section point. Spins are converted to the canonical pair
+//   alpha_i = atan2(chi_i_y, chi_i_x),  S_{i,z} = X_i^2 * chi_i_z   (lab frame)
+// at the crossing -- the pole is harmless here (it is a single atan2 evaluation, not an integration
+// singularity). Spin vectors are renormalized to their (conserved) magnitude after interpolation.
+// Change the section condition below to use a different plane/direction if desired.
+void WriteSectionCrossing(FILE *fps,
+                          double tp, double rp[], double pp[], double c1p[], double c2p[],
+                          double tc, double rc[], double pc[], double c1c[], double c2c[])
+{
+    if (fps == NULL) return;
+    if (!(rp[2] <= 0. && rc[2] > 0.)) return; // z = 0 upward crossing only
+
+    double dz = rc[2] - rp[2];
+    double f  = (dz != 0.) ? (-rp[2] / dz) : 0.; // fraction of the step to the crossing, in [0,1]
+
+    // Linear interpolation of the lab-frame state to the crossing
+    double t = tp + f*(tc - tp);
+    double r[3], p[3], c1[3], c2[3];
+    for (int i = 0; i < 3; i++) {
+        r[i]  = rp[i] + f*(rc[i] - rp[i]);
+        p[i]  = pp[i] + f*(pc[i] - pp[i]);
+        c1[i] = c1p[i] + f*(c1c[i] - c1p[i]);
+        c2[i] = c2p[i] + f*(c2c[i] - c2p[i]);
+    }
+
+    // Renormalize spins to their conserved magnitude (interpolation slightly shrinks the chord)
+    double m1 = get_mod(c1p), m2 = get_mod(c2p);
+    double n1 = get_mod(c1),  n2 = get_mod(c2);
+    if (n1 > 0.) for (int i = 0; i < 3; i++) c1[i] *= m1/n1;
+    if (n2 > 0.) for (int i = 0; i < 3; i++) c2[i] *= m2/n2;
+
+    double X1, X2;
+        get_X1X2(pars->nu, &X1, &X2);
+    double alpha1 = atan2(c1[1], c1[0]);
+    double alpha2 = atan2(c2[1], c2[0]);
+    double S1z = X1*X1 * c1[2];
+    double S2z = X2*X2 * c2[2];
+
+    fprintf(fps, "%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\t%.16f\n",
+            t, r[0], r[1], p[0], p[1], p[2], alpha1, S1z, alpha2, S2z);
+    fflush(fps);
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
@@ -421,22 +688,26 @@ void get_rhs_canonical_transformed(double s, double W[], double dW[])
     alpha2 = W[8];
     xi2    = W[9];
     
-    // FIXME: this could be changed and updated during the evolution by defining pars->modchi and updating it in the dynamics. 
+    // FIXME: this could be changed and updated during the evolution by defining pars->modchi and updating it in the dynamics.
     // However even with the non-canonical evolution, the error on the conservation of the spin magnitude is of the order of 10^-14.
     double modchi1 = sqrt((pars->chi1x0)*(pars->chi1x0) + (pars->chi1y0)*(pars->chi1y0) + (pars->chi1z0)*(pars->chi1z0));
     double modchi2 = sqrt((pars->chi2x0)*(pars->chi2x0) + (pars->chi2y0)*(pars->chi2y0) + (pars->chi2z0)*(pars->chi2z0));
 
-    // Get the spins
-    double chi1[3], chi2[3];
+    // Reconstruct the spins in the (rotated) chart frame, then rotate to lab
+    // for the Hamiltonian call. (alpha_i, xi_i) live in the chart frame.
+    double chi1_chart[3], chi2_chart[3], chi1[3], chi2[3];
     double sqrt1mxi12 = sqrt(1. - xi1*xi1);
     double sqrt1mxi22 = sqrt(1. - xi2*xi2);
 
-    chi1[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
-    chi1[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
-    chi1[2] = modchi1 * xi1;
-    chi2[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
-    chi2[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
-    chi2[2] = modchi2 * xi2;
+    chi1_chart[0] = modchi1 * sqrt1mxi12 * cos(alpha1);
+    chi1_chart[1] = modchi1 * sqrt1mxi12 * sin(alpha1);
+    chi1_chart[2] = modchi1 * xi1;
+    chi2_chart[0] = modchi2 * sqrt1mxi22 * cos(alpha2);
+    chi2_chart[1] = modchi2 * sqrt1mxi22 * sin(alpha2);
+    chi2_chart[2] = modchi2 * xi2;
+
+    RotateVecT(pars->R1, chi1_chart, chi1);
+    RotateVecT(pars->R2, chi2_chart, chi2);
 
     double pt = W[11]; // = -H0
 
@@ -445,17 +716,20 @@ void get_rhs_canonical_transformed(double s, double W[], double dW[])
     double n[3];
         get_n(r, n, NULL);
 
-    // Hamiltonian and derivatives
+    // Hamiltonian and derivatives (lab frame)
     double Heff, H, dHeff[12], dH[12];
         Hamiltonian(r, p, nu, chi1, chi2, &Heff, &H, dHeff, dH);
 
-    // Extract derivatives wrt to the spins chi1, chi2
-    double dHdchi1[3], dHdchi2[3];
+    // Spin derivatives: lab frame -> chart frame (dH/dchi' = R dH/dchi)
+    double dHdchi1_lab[3], dHdchi2_lab[3];
+    double dHdchi1[3], dHdchi2[3]; // chart frame
     for (int i = 0; i < 3; i++)
     {
-        dHdchi1[i] = dH[6 + i];
-        dHdchi2[i] = dH[9 + i];
+        dHdchi1_lab[i] = dH[6 + i];
+        dHdchi2_lab[i] = dH[9 + i];
     }
+    RotateVec(pars->R1, dHdchi1_lab, dHdchi1);
+    RotateVec(pars->R2, dHdchi2_lab, dHdchi2);
 
     // Transformation dt = g ds with g = |r|
     double g, dgdr[3];
@@ -476,15 +750,22 @@ void get_rhs_canonical_transformed(double s, double W[], double dW[])
         dW[i + 3] = - (g * dH[i] + (H + pt) * dgdr[i]);
     }
 
+    // Mass fractions: the canonical momentum conjugate to alpha_i is the physical
+    // spin projection S_{i,z} = m_i^2 |chi_i| xi_i, so both equations carry 1/m_i^2 = 1/X_i^2 (M = 1)
+    double X1, X2;
+        get_X1X2(nu, &X1, &X2);
+        double iX1sq = nu/(X1*X1); // prefactor mu/m_i^2 = nu/X_i^2 (M=1); see Sec. on spin EOMs
+        double iX2sq = nu/(X2*X2);
+
     const double eps = 1.0e-30;
 
-    double dalpha1dt = - xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]; // dalpha1dt = (1/|chi1|) dH/dxi1
-    double dxi1dt = - sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1)); // dxi1dt = - (1/|chi1|) dH/dalpha1
-    double dalpha2dt = - xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]; // dalpha2dt = (1/|chi2|) dH/dxi2
-    double dxi2dt = - sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2)); // dxi2dt = - (1/|chi2|) dH/dalpha2
+    double dalpha1dt = iX1sq*(- xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]); // dalpha1dt = (1/(m1^2|chi1|)) dH/dxi1
+    double dxi1dt = iX1sq*(- sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1))); // dxi1dt = - (1/(m1^2|chi1|)) dH/dalpha1
+    double dalpha2dt = iX2sq*(- xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]); // dalpha2dt = (1/(m2^2|chi2|)) dH/dxi2
+    double dxi2dt = iX2sq*(- sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2))); // dxi2dt = - (1/(m2^2|chi2|)) dH/dalpha2
 
     // Spin variables
-    dW[6] = g * dalpha1dt; 
+    dW[6] = g * dalpha1dt;
     dW[7] = g * dxi1dt;
     dW[8] = g * dalpha2dt;
     dW[9] = g * dxi2dt;
@@ -492,8 +773,23 @@ void get_rhs_canonical_transformed(double s, double W[], double dW[])
     // dt/ds = dK/dpt = r
     dW[10] = g;
 
-    // dpt/ds = -dK/dt = 0 
+    // dpt/ds = -dK/dt = 0
     dW[11] = 0.;
+
+    // Chart-pole proximity warning (see get_rhs_canonical for explanation).
+    // Use the physical time stored in W[10] rather than s.
+    {
+        static double max1 = 0., max2 = 0.;
+        double r1 = fabs(xi1), r2 = fabs(xi2);
+        if (r1 > 0.95 && r1 > max1 + 0.01) {
+            fprintf(stderr, "Warning [get_rhs_canonical_transformed]: |xi1|/|chi1| = %.6f (chart pole approached, t=%.6f)\n", r1, W[10]);
+            max1 = r1;
+        }
+        if (r2 > 0.95 && r2 > max2 + 0.01) {
+            fprintf(stderr, "Warning [get_rhs_canonical_transformed]: |xi2|/|chi2| = %.6f (chart pole approached, t=%.6f)\n", r2, W[10]);
+            max2 = r2;
+        }
+    }
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//

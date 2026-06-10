@@ -384,6 +384,93 @@ void CartesianToSpherical(double r[], double p[], double *Q, double *P)
     Q[2] = phi;
     P[0] = pr;
     P[1] = ptheta;
-    P[2] = pphi; 
+    P[2] = pphi;
 
+}
+
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+//             Rotation helpers for the canonical spin chart (rotated-chart option)                   //
+//~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
+
+// Build a rotation matrix R (lab -> chart frame) such that the chart-frame
+// z-axis is orthogonal to the initial spin direction. With this choice the
+// initial canonical variables are (alpha = 0, xi = 0), as far as possible
+// from the chart pole.
+// Convention: rows of R are the chart-frame basis vectors (x', y', z')
+// expressed in the lab frame. So:
+//      v_chart = R v_lab,    v_lab = R^T v_chart.
+// We pick x' = chi/|chi| (initial spin along the chart x-axis), z' as a
+// unit vector perpendicular to x' (the chart pole), and y' = z' x x'.
+// If |chi| < tol the rotation is set to the identity (no chart needed).
+void BuildSpinChartRotation(double chi[], double R[3][3])
+{
+    double modchi = get_mod(chi);
+    if (modchi < 1.0e-15) {
+        for (int i = 0; i < 3; i++)
+            for (int j = 0; j < 3; j++)
+                R[i][j] = (i == j) ? 1.0 : 0.0;
+        return;
+    }
+
+    // x' = chi / |chi|
+    double ex[3];
+    for (int i = 0; i < 3; i++) ex[i] = chi[i] / modchi;
+
+    // Pick the lab basis vector farthest from ex (smallest |ex[k]|) to
+    // build a numerically well-conditioned cross product.
+    int k_min = 0;
+    if (fabs(ex[1]) < fabs(ex[k_min])) k_min = 1;
+    if (fabs(ex[2]) < fabs(ex[k_min])) k_min = 2;
+    double v[3] = {0.0, 0.0, 0.0};
+    v[k_min] = 1.0;
+
+    // z' = (ex x v) / |ex x v|  (perpendicular to ex by construction)
+    double ez[3];
+    cross(ex, v, ez);
+    double modez = get_mod(ez);
+    for (int i = 0; i < 3; i++) ez[i] /= modez;
+
+    // y' = z' x x' (right-handed, automatically unit)
+    double ey[3];
+    cross(ez, ex, ey);
+
+    // Pack into R (rows = x', y', z')
+    for (int i = 0; i < 3; i++) {
+        R[0][i] = ex[i];
+        R[1][i] = ey[i];
+        R[2][i] = ez[i];
+    }
+}
+
+// v_out = R v_in (lab -> chart)
+void RotateVec(double R[3][3], double v_in[], double v_out[])
+{
+    for (int i = 0; i < 3; i++) {
+        v_out[i] = R[i][0]*v_in[0] + R[i][1]*v_in[1] + R[i][2]*v_in[2];
+    }
+}
+
+// v_out = R^T v_in (chart -> lab)
+void RotateVecT(double R[3][3], double v_in[], double v_out[])
+{
+    for (int i = 0; i < 3; i++) {
+        v_out[i] = R[0][i]*v_in[0] + R[1][i]*v_in[1] + R[2][i]*v_in[2];
+    }
+}
+
+// Rodrigues' rotation formula: rotate vector v by `angle` (right-handed) about
+// the UNIT axis k. This is the exact flow of a constant-axis precession
+// dv/dt = Omega x v, with k = Omega/|Omega| and angle = |Omega| Delta t.
+// Norm-preserving for any angle (rotations are isometries), which is exactly
+// why it tolerates arbitrarily fast precession without a step-size limit.
+//   out = v cos(a) + (k x v) sin(a) + k (k.v)(1 - cos(a))
+void RodriguesRotate(double v[], double k[], double angle, double out[])
+{
+    double c = cos(angle);
+    double s = sin(angle);
+    double kxv[3];
+        cross(k, v, kxv);
+    double kdotv = dot(k, v, 3);
+    for (int i = 0; i < 3; i++)
+        out[i] = v[i]*c + kxv[i]*s + k[i]*kdotv*(1.0 - c);
 }
