@@ -534,47 +534,48 @@ void get_rhs_canonical_transformed(double s, double W[], double dW[])
 // [in]  p              Momentum vector
 // [in]  chi1           Spin vector of the first particle
 // [in]  chi2           Spin vector of the second particle
-double CarterLikeConstant(double r[], double p[], double chi1[], double chi2[]) 
+double CarterLikeConstant(double r[], double p[], double chi1[], double chi2[])
 {
     double nu = pars->nu;
 
-    // Unwrap coordinates & momenta
-    double x  = r[0];
-    double y  = r[1];
-    double z  = r[2];
-    double px = p[0];
-    double py = p[1];
-    double pz = p[2];
-    
-    // Get spherical coordinates & momenta
-    double R   = get_mod(r);
-    // double phi = atan(y/x); // check if this is okay
-    // double phi = atan(fabs(y)/fabs(x));
-    // double sinphi = sin(phi);
-    // double cosphi = cos(phi);
+    // Radial unit vector
+    double n[3];
+        get_n(r, n, NULL);
 
-    double costheta  = z/R; 
-    double costheta2 = costheta*costheta; 
-    double sintheta2 = 1. - costheta2;
-    double sintheta  = sqrt(sintheta2);
-    
-    // double ptheta  = R*(- pz * sintheta + costheta * (px * cosphi + py * sinphi));
-    double ptheta  = - R * pz * sintheta + px * (x*z/sintheta) + py * (y*z/sintheta); 
-    double ptheta2 = ptheta*ptheta;
+    // Orbital angular momentum
+    double l[3];
+        cross(r, p, l);
+    double l2 = dot(l, l, 3);
 
-    // double pphi  = R * sintheta * (py * cosphi - px * sinphi);
-    double pphi  = x*py - y*px;
-    double pphi2 = pphi*pphi;
-
+    // Effective spin axis: the polar axis of the Carter-like constant is a0,
+    // NOT the lab z axis (Damour 2001, Eq. (2.38); same point as in get_Q4).
     double a0[3];
         get_a0(nu, chi1, chi2, a0);
-    double a02 = dot(a0, a0, 3);
+    double moda0 = get_mod(a0);
 
+    // Effective Hamiltonian, normalised to mu. It is itself a constant of the
+    // motion, so it could equally well be taken from the initial data.
     double Heff, H;
-    Hamiltonian(r, p, nu, chi1, chi2, &Heff, &H, NULL, NULL);
-    double Heff2 = Heff*Heff;
-    
-    return ptheta2 + costheta2 * (pphi2 / sintheta2 + a02 * (1. - Heff2));
+        Hamiltonian(r, p, nu, chi1, chi2, &Heff, &H, NULL, NULL);
+
+    // Damour 2001, Eq. (3.25), written in an arbitrary frame:
+    //     Q = l^2 - (l.s)^2 + a0^2 (n.s)^2 (1 - Heff^2),    s = a0/|a0|
+    // This is the (theta, phi)-free rewriting of his Eq. (3.23): eliminating
+    // ptheta with the identity l^2 = ptheta^2 + pphi^2/sin^2(theta) puts the
+    // constant in manifestly rotational-scalar form, so no spherical
+    // coordinates (and no 1/sin(theta), singular on the axis) are needed.
+    // Note that a0^2 (n.s)^2 = (a0.n)^2, so |a0| is only needed for (l.s).
+    if (moda0 < 1.0e-15)
+    {
+        // No spin: the polar axis is undefined. The orbit is planar and l is
+        // conserved, so any axis works; keep the lab z axis by convention.
+        return l2 - l[2]*l[2];
+    }
+
+    double ls  = dot(l, a0, 3)/moda0; // = l.s
+    double na0 = dot(n, a0, 3);       // = a0.n
+
+    return l2 - ls*ls + na0*na0*(1. - Heff*Heff);
 }
 
 //~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~//
