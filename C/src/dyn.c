@@ -236,16 +236,24 @@ void get_rhs(double t, double w[], double dw[])
         cross(dHdchi1, chi1, dHdchi1xchi1);
         cross(dHdchi2, chi2, dHdchi2xchi2);
 
+    // Spin EOM: dchi_i/dt = (1/m_i^2)(dH_phys/dchi_i) x chi_i. The code uses Hhat = H_phys/mu
+    // and dimensionless time t = T/M, so the prefactor on (dHhat/dchi_i) is mu/m_i^2 = nu/X_i^2
+    // (M=1) -- NOT 1/X_i^2 (see the spin-EOM discussion in the paper).
+    double X1, X2;
+        get_X1X2(nu, &X1, &X2);
+        double iX1sq = nu/(X1*X1); // prefactor mu/m_i^2 = nu/X_i^2 (M=1); see Sec. on spin EOMs
+        double iX2sq = nu/(X2*X2);
+
     // *******
     // * rhs *
     // *******
 
     for (int i = 0; i < 3; i++)
     {
-        dw[i]     = dH[i + 3];        // x, y, z
-        dw[i + 3] = - dH[i];          // px, py, pz
-        dw[i + 6] = dHdchi1xchi1[i];  // chi1x, chi1y, chi1z
-        dw[i + 9] = dHdchi2xchi2[i];  // chi2x, chi2y, chi2z
+        dw[i]     = dH[i + 3];                 // x, y, z
+        dw[i + 3] = - dH[i];                   // px, py, pz
+        dw[i + 6] = iX1sq*dHdchi1xchi1[i];     // chi1x, chi1y, chi1z
+        dw[i + 9] = iX2sq*dHdchi2xchi2[i];     // chi2x, chi2y, chi2z
     }
 }
 
@@ -313,11 +321,18 @@ void get_rhs_canonical(double t, double W[], double dW[])
         dW[i + 3] = - dH[i];          // px, py, pz
     }
 
+    // Mass fractions: the canonical momentum conjugate to alpha_i is the physical
+    // spin projection S_{i,z} = m_i^2 |chi_i| xi_i, so both equations carry 1/m_i^2 = 1/X_i^2 (M = 1)
+    double X1, X2;
+        get_X1X2(nu, &X1, &X2);
+        double iX1sq = nu/(X1*X1); // prefactor mu/m_i^2 = nu/X_i^2 (M=1); see Sec. on spin EOMs
+        double iX2sq = nu/(X2*X2);
+
     const double eps = 1.0e-30;
-    dW[6] = modchi1 * (- xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]); // dalpha1dt = dH/dxi1
-    dW[7] = - modchi1*sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1)); // dxi1dt = - dH/dalpha1
-    dW[8] = modchi2 * (- xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]); // dalpha2dt = dH/dxi2
-    dW[9] = - modchi2*sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2)); // dxi2dt = - dH/dalpha2
+    dW[6] = iX1sq*(- xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]); // dalpha1dt = (1/(m1^2|chi1|)) dH/dxi1
+    dW[7] = iX1sq*(- sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1))); // dxi1dt = - (1/(m1^2|chi1|)) dH/dalpha1
+    dW[8] = iX2sq*(- xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]); // dalpha2dt = (1/(m2^2|chi2|)) dH/dxi2
+    dW[9] = iX2sq*(- sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2))); // dxi2dt = - (1/(m2^2|chi2|)) dH/dalpha2
 }
 
 
@@ -368,6 +383,14 @@ void get_rhs_transformed(double s, double w[], double dw[])
     cross(dHdchi1, chi1, dHdchi1xchi1);
     cross(dHdchi2, chi2, dHdchi2xchi2);
 
+    // Spin EOM: dchi_i/dt = (1/m_i^2)(dH_phys/dchi_i) x chi_i. The code uses Hhat = H_phys/mu
+    // and dimensionless time t = T/M, so the prefactor on (dHhat/dchi_i) is mu/m_i^2 = nu/X_i^2
+    // (M=1) -- NOT 1/X_i^2 (see the spin-EOM discussion in the paper).
+    double X1, X2;
+        get_X1X2(nu, &X1, &X2);
+        double iX1sq = nu/(X1*X1); // prefactor mu/m_i^2 = nu/X_i^2 (M=1); see Sec. on spin EOMs
+        double iX2sq = nu/(X2*X2);
+
     // Transformation dt = g ds with g = |r|
     double g, dgdr[3];
     // g = modr; 
@@ -386,10 +409,10 @@ void get_rhs_transformed(double s, double w[], double dw[])
     // dchi/ds = g * {chi, H}
     for (int i = 0; i < 3; i++)
     {
-        dw[i]     = g * dH[i + 3]; 
-        dw[i + 3] = - (modr * dH[i] + (H + pt) * dgdr[i]); // when g = modr
-        dw[i + 6] = g * dHdchi1xchi1[i];
-        dw[i + 9] = g * dHdchi2xchi2[i];
+        dw[i]     = g * dH[i + 3];
+        dw[i + 3] = - (g * dH[i] + (H + pt) * dgdr[i]); 
+        dw[i + 6] = g * iX1sq*dHdchi1xchi1[i];
+        dw[i + 9] = g * iX2sq*dHdchi2xchi2[i];
     }
 
     // dt/ds = dK/dpt = g
@@ -476,19 +499,24 @@ void get_rhs_canonical_transformed(double s, double W[], double dW[])
         dW[i + 3] = - (g * dH[i] + (H + pt) * dgdr[i]);
     }
 
+    // Mass fractions: the canonical momentum conjugate to alpha_i is the physical
+    // spin projection S_{i,z} = m_i^2 |chi_i| xi_i, so both equations carry 1/m_i^2 = 1/X_i^2 (M = 1)
+    double X1, X2;
+        get_X1X2(nu, &X1, &X2);
+        double iX1sq = nu/(X1*X1); // prefactor mu/m_i^2 = nu/X_i^2 (M=1); see Sec. on spin EOMs
+        double iX2sq = nu/(X2*X2);
+
     const double eps = 1.0e-30;
 
-    // dalpha1dt = dH/dxi1
-    double dalpha1dt = modchi1 * (- xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]); 
-    dW[6] = g * dalpha1dt; 
-    // dxi1dt = - dH/dalpha1
-    double dxi1dt = - modchi1*sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1)); 
+    double dalpha1dt = iX1sq*(- xi1*cos(alpha1)*dHdchi1[0] / (eps + sqrt1mxi12) - xi1*sin(alpha1)*dHdchi1[1] / (eps + sqrt1mxi12) + dHdchi1[2]); // dalpha1dt = (1/(m1^2|chi1|)) dH/dxi1
+    double dxi1dt = iX1sq*(- sqrt1mxi12 * (dHdchi1[1]*cos(alpha1) - dHdchi1[0]*sin(alpha1))); // dxi1dt = - (1/(m1^2|chi1|)) dH/dalpha1
+    double dalpha2dt = iX2sq*(- xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]); // dalpha2dt = (1/(m2^2|chi2|)) dH/dxi2
+    double dxi2dt = iX2sq*(- sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2))); // dxi2dt = - (1/(m2^2|chi2|)) dH/dalpha2
+
+    // Spin variables
+    dW[6] = g * dalpha1dt;
     dW[7] = g * dxi1dt;
-    // dalpha2dt = dH/dxi2
-    double dalpha2dt = modchi2 * (- xi2*cos(alpha2)*dHdchi2[0] / (eps + sqrt1mxi22) - xi2*sin(alpha2)*dHdchi2[1] / (eps + sqrt1mxi22) + dHdchi2[2]);
     dW[8] = g * dalpha2dt;
-    // dxi2dt = - dH/dalpha2
-    double dxi2dt = - modchi2*sqrt1mxi22 * (dHdchi2[1]*cos(alpha2) - dHdchi2[0]*sin(alpha2)); 
     dW[9] = g * dxi2dt;
 
     // dt/ds = dK/dpt = r
