@@ -671,19 +671,20 @@ void get_Q4(double r[], double p[], double nu, double chi1[], double chi2[], dou
 
     double r2      = dot(r, r, 3); // square modulus
     double modr    = sqrt(r2); // modulus
-    double u2      = 1./r2; // square modulus of the inverse radius
-    double u3      = u2/modr;
 
-    double n[3], dndr[3][3]; 
+    double n[3], dndr[3][3];
         get_n(r, n, (double *)dndr);
 
-    double pr, dpr[12] = {0.}; // Q: could just use 6 components? other ones are 0 anyway... will think about it 
+    double pr, dpr[12] = {0.}; // Q: could just use 6 components? other ones are 0 anyway... will think about it
         get_pr(r, p, &pr, dpr);
     double pr3 = pr*pr*pr;
     double pr4 = pr3*pr;
 
     // version of Q4 from Damour-Nagar 2014 (for spin-aligned binaries, using prstar)
     /*
+    double u2 = 1./r2; // square modulus of the inverse radius
+    double pr2 = pr*pr;
+
     double A, dAdr;
         get_Aorb(modr, nu, &A, &dAdr);
 
@@ -693,43 +694,50 @@ void get_Q4(double r[], double p[], double nu, double chi1[], double chi2[], dou
     double prstar2 = (A*A*D)*pr2;
     double prstar4 = prstar2*prstar2;
 
-    *Q4 = 2.*nu*(4. - 3.*nu)*prstar4*u2; 
+    *Q4 = 2.*nu*(4. - 3.*nu)*prstar4*u2;
     */
 
     // Damour 2001: first spinning binaries paper, generic orientation of the spins, defined with dot(p, n)
     // This definition of Q4 allows to have a two-body analogous of the Carter constant (could be checked numerically, interesting)
     // See eq. 2.37 in the paper and discussion after eq. 3.20.
 
-    double costheta  = r[2]/modr; // z/|r|
-    double costheta2 = costheta*costheta; 
+    // The polar angle theta is measured from the EFFECTIVE SPIN AXIS a0, not from
+    // the lab z axis: Damour 2001 Eq. (2.38) defines cos(theta) = n.s with s the unit
+    // vector along the effective spin, so the invariant combination is
+    //     rho^2 = r^2 + (a0.n)^2,    NOT    r^2 + a0^2 (z/|r|)^2.
+    // The two agree only when a0 happens to point along z, which is why aligned-spin
+    // runs never show the difference. Using the lab z axis makes the Hamiltonian
+    // axisymmetric about z but not isotropic, which breaks the conservation of the
+    // full vector J (only J_z survives). Every other spin structure here already
+    // follows the invariant rule -- see na0 = dot(n, a0) in Potentials().
     double a0[3];
         get_a0(nu, chi1, chi2, a0);
-    double a02 = dot(a0, a0, 3);
+    double na0 = dot(n, a0, 3); // = |a0| cos(theta), with theta measured from a0
 
     double Cnu  = 2.*nu*(4. - 3.*nu); // constant only depending on nu (only holds at 3PN)
-    double den  = r2 + a02*costheta2;
+    double den  = r2 + na0*na0;
     double iden = 1./den;
-    *Q4         = Cnu*pr4*iden; 
+    *Q4         = Cnu*pr4*iden;
 
     // using one single 12-component array for the derivatives wrt to:
     // x, y, z, px, py, pz, chi1x, chi1y, chi1z, chi2x, chi2y, chi2z
 
-    // useful pieces
-    double dcostheta2dr[3]; 
-    double z2       = r[2]*r[2];
-    dcostheta2dr[0] = -2.*z2*n[0]*u3; // d(costheta^2)/dx
-    dcostheta2dr[1] = -2.*z2*n[1]*u3; // d(costheta^2)/dy
-    dcostheta2dr[2] = 2.*costheta*(1./modr - r[2]*n[2]*u2); // d(costheta^2)/dz
+    // useful pieces: with den = r^2 + (a0.n)^2 and n = r/|r|,
+    //     d(den)/dr_i    = 2 r_i + 2 (a0.n) (a0_i - (a0.n) n_i)/|r|
+    //     d(den)/dchi1_i = 2 (a0.n) n_i X1        (and X2 for chi2)
+    double ddendr[3];
+    for (int i = 0; i < 3; i++)
+        ddendr[i] = 2.*r[i] + 2.*na0*(a0[i] - na0*n[i])/modr;
     double iden2    = iden*iden;
     double X1, X2;
         get_X1X2(nu, &X1, &X2);
 
     for (int i = 0; i < 3; i++)
     {
-        dQ4[i]     = Cnu*(4.*pr3*dpr[i] - pr4*(2.*modr*n[i] + a02*dcostheta2dr[i])*iden)*iden;  // wrt to x, y, z
+        dQ4[i]     = Cnu*(4.*pr3*dpr[i] - pr4*ddendr[i]*iden)*iden;  // wrt to x, y, z
         dQ4[i + 3] = Cnu*4.*pr3*dpr[i + 3]*iden; // wrt to px, py, pz
-        dQ4[i + 6] = - Cnu*pr4*iden2 * 2.*a0[i]*X1*costheta2;  // wrt to chi1x, chi1y, chi1z
-        dQ4[i + 9] = - Cnu*pr4*iden2 * 2.*a0[i]*X2*costheta2;  // wrt to chi2x, chi2y, chi2z
+        dQ4[i + 6] = - Cnu*pr4*iden2 * 2.*na0*n[i]*X1;  // wrt to chi1x, chi1y, chi1z
+        dQ4[i + 9] = - Cnu*pr4*iden2 * 2.*na0*n[i]*X2;  // wrt to chi2x, chi2y, chi2z
     }
 }
 
