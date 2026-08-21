@@ -680,22 +680,58 @@ void get_Q4(double r[], double p[], double nu, double chi1[], double chi2[], dou
     double pr3 = pr*pr*pr;
     double pr4 = pr3*pr;
 
-    // version of Q4 from Damour-Nagar 2014 (for spin-aligned binaries, using prstar)
-    /*
-    double u2 = 1./r2; // square modulus of the inverse radius
-    double pr2 = pr*pr;
+    // ***********************************
+    // * Tortoise radial momentum pr_star *
+    // ***********************************
+    // Q4 is expressed in terms of the tortoise radial momentum rather than pr.
+    // Damour-Nagar 2014 [PRD 90, 044018] Eq. (34) defines pr_star^2 = (A/B) pr^2,
+    // and its Eq. (32) gives D = A B = (r^2/rc^2) Dorb(uc), hence
+    //
+    //     pr_star^2 = T pr^2,     T = Aeq^2 rc^2 u^2 / Dorb(uc),
+    //
+    // with Aeq the equatorial A potential of its Eq. (31) (= get_AeqB) and Dorb
+    // its Eq. (33) (= get_Dorb), both taken as functions of the centrifugal
+    // radius rc. Sanity checks: for vanishing spin rc -> r and T -> Aorb^2/D,
+    // the usual tortoise relation; at nu = 0 it reduces further to
+    // pr_star = (1 - 2u) pr.
+    //
+    // Aeq is used here rather than the full (non-equatorial) A of Potentials()
+    // because Damour-Nagar 2014 is a spin-aligned, equatorial model, where
+    // n.a0 = 0 and the two coincide; away from the equatorial case the choice
+    // is a higher-order ambiguity, and Aeq keeps Q4 from becoming entangled
+    // with the NLO spin-spin potentials.
+    //
+    // The substitution pr -> pr_star requires NO change of the 2 nu (4 - 3 nu)
+    // coefficient: at this (leading, 3PN) order the coefficient is the same in
+    // the two gauges. The transformation first matters one order higher, at
+    // u^3 pr^4, which is not implemented here.
+    double rc, drc[4][3];
+        get_rc(r, nu, chi1, chi2, &rc, (double *)drc);
 
-    double A, dAdr;
-        get_Aorb(modr, nu, &A, &dAdr);
+    double Aeq, dAeq[12];
+        get_AeqB(r, nu, chi1, chi2, &Aeq, dAeq);
 
-    double D, dDdr;
-        get_Dorb(modr, nu, &D, &dDdr);
+    double Dorb, dDorbdrc;
+        get_Dorb(rc, nu, &Dorb, &dDorbdrc);
 
-    double prstar2 = (A*A*D)*pr2;
-    double prstar4 = prstar2*prstar2;
+    double u   = 1./modr;
+    double u2  = u*u;
+    double T   = Aeq*Aeq * rc*rc * u2 / Dorb; // pr_star^2 = T pr^2
+    double T2  = T*T;                         // pr_star^4 = T^2 pr^4
 
-    *Q4 = 2.*nu*(4. - 3.*nu)*prstar4*u2;
-    */
+    // dT/T = 2 dAeq/Aeq + 2 drc/rc - 2 d|r|/|r| - dDorb/Dorb, with
+    // dDorb = dDorbdrc drc. Neither Aeq, rc nor Dorb depends on the momentum,
+    // so the pr_star dependence on p is carried entirely by pr.
+    double dT[12] = {0.};
+    for (int i = 0; i < 3; i++)
+    {
+        dT[i]     = T*( 2.*dAeq[i]/Aeq   + 2.*drc[0][i]/rc - 2.*n[i]*u - drc[0][i]*dDorbdrc/Dorb );
+        dT[i + 6] = T*( 2.*dAeq[i+6]/Aeq + 2.*drc[2][i]/rc            - drc[2][i]*dDorbdrc/Dorb );
+        dT[i + 9] = T*( 2.*dAeq[i+9]/Aeq + 2.*drc[3][i]/rc            - drc[3][i]*dDorbdrc/Dorb );
+    }
+
+    // Previous version, in terms of pr rather than pr_star: recover it by
+    // setting T = 1 (and dT = 0), i.e. *Q4 = Cnu*pr4*iden below.
 
     // Damour 2001: first spinning binaries paper, generic orientation of the spins, defined with dot(p, n)
     // This definition of Q4 allows to have a two-body analogous of the Carter constant (could be checked numerically, interesting)
@@ -717,7 +753,15 @@ void get_Q4(double r[], double p[], double nu, double chi1[], double chi2[], dou
     double Cnu  = 2.*nu*(4. - 3.*nu); // constant only depending on nu (only holds at 3PN)
     double den  = r2 + na0*na0;
     double iden = 1./den;
-    *Q4         = Cnu*pr4*iden;
+
+    // Q4 = Cnu pr_star^4 / rho^2 = Cnu T^2 pr^4 / (r^2 + (a0.n)^2).
+    // Note that rho^2 is kept as the denominator, rather than Damour-Nagar 2014's
+    // uc^2 = 1/rc^2: since rc depends on |a0| but not on its direction, uc^2 would
+    // not cancel the rho^2 factor that separates the mass shell, and the
+    // Carter-like third integral would be lost. With rho^2 the quartic term
+    // becomes Cnu pr_star^4 after multiplying through, and since pr_star is a
+    // function of (r, pr) alone the separability is preserved.
+    *Q4 = Cnu*T2*pr4*iden;
 
     // using one single 12-component array for the derivatives wrt to:
     // x, y, z, px, py, pz, chi1x, chi1y, chi1z, chi2x, chi2y, chi2z
@@ -727,17 +771,18 @@ void get_Q4(double r[], double p[], double nu, double chi1[], double chi2[], dou
     //     d(den)/dchi1_i = 2 (a0.n) n_i X1        (and X2 for chi2)
     double ddendr[3];
     for (int i = 0; i < 3; i++)
-        ddendr[i] = 2.*r[i] + 2.*na0*(a0[i] - na0*n[i])/modr;
+        ddendr[i] = 2.*r[i] + 2.*na0*(a0[i] - na0*n[i])*u;
     double iden2    = iden*iden;
     double X1, X2;
         get_X1X2(nu, &X1, &X2);
 
     for (int i = 0; i < 3; i++)
     {
-        dQ4[i]     = Cnu*(4.*pr3*dpr[i] - pr4*ddendr[i]*iden)*iden;  // wrt to x, y, z
-        dQ4[i + 3] = Cnu*4.*pr3*dpr[i + 3]*iden; // wrt to px, py, pz
-        dQ4[i + 6] = - Cnu*pr4*iden2 * 2.*na0*n[i]*X1;  // wrt to chi1x, chi1y, chi1z
-        dQ4[i + 9] = - Cnu*pr4*iden2 * 2.*na0*n[i]*X2;  // wrt to chi2x, chi2y, chi2z
+        // d(T^2 pr^4) = 2 T dT pr^4 + T^2 4 pr^3 dpr
+        dQ4[i]     = Cnu*iden*(2.*T*dT[i]*pr4 + T2*4.*pr3*dpr[i]) - Cnu*T2*pr4*ddendr[i]*iden2;      // wrt to x, y, z
+        dQ4[i + 3] = Cnu*iden*T2*4.*pr3*dpr[i + 3];                                                  // wrt to px, py, pz
+        dQ4[i + 6] = Cnu*iden*2.*T*dT[i + 6]*pr4 - Cnu*T2*pr4*iden2*2.*na0*n[i]*X1;                  // wrt to chi1x, chi1y, chi1z
+        dQ4[i + 9] = Cnu*iden*2.*T*dT[i + 9]*pr4 - Cnu*T2*pr4*iden2*2.*na0*n[i]*X2;                  // wrt to chi2x, chi2y, chi2z
     }
 }
 
